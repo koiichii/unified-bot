@@ -71,11 +71,10 @@ class PokemonCog(commands.Cog):
 
                     # Получение данных пользователя
                     guild_id = interaction.guild.id if interaction.guild else 0
-                    user_data = await db.get_user(interaction.user.id, guild_id)
+                    user_balance = await db.get_user_money(interaction.user.id, guild_id)
 
-                    # Проверка баланса
-                    if user_data["money"] < cost:
-                        await interaction.followup.send(f"❌ Недостаточно денег! Нужно {cost} монет. А у тебя {user_data['money']}", ephemeral=True)
+                    if user_balance < cost:
+                        await interaction.followup.send(f"❌ Недостаточно денег! Нужно {cost} монет. А у тебя {user_balance}", ephemeral=True)
                         return
 
                     # Открытие пака
@@ -214,8 +213,7 @@ class PokemonCog(commands.Cog):
                                 print("DEBUG: Сообщения удалены")
 
                                 # Получаем актуальный баланс
-                                user_data = await db.get_user(self.owner_id, self.guild_id)
-                                balance = user_data["money"] if user_data else 0
+                                balance = await db.get_user_money(self.owner_id, self.guild_id)
                                 print(f"DEBUG: Новый баланс: ${balance}")
 
                                 await interaction_button.followup.send(
@@ -268,8 +266,8 @@ class PokemonCog(commands.Cog):
                                 normal_weights = NORMAL_WEIGHTS_PRISMA
                             
                             # Проверяем баланс
-                            user_data = await db.get_user(self.owner_id, self.guild_id)
-                            if user_data is None or user_data["money"] < cost:
+                            user_balance = await db.get_user_money(self.owner_id, self.guild_id)
+                            if user_balance is None or user_balance < cost:
                                 await interaction_button.followup.send(f"❌ Нужно {cost} монет!", ephemeral=True)
                                 return
                             
@@ -459,26 +457,26 @@ class PokemonCog(commands.Cog):
     @commands.command(name='cell')
     async def cell(self, ctx):
         guild_id = ctx.guild.id if ctx.guild else 0
-        
-        # Получаем коллекцию из базы данных
+    
+    # Получаем коллекцию из базы данных
         collection = await db.get_user_collection(ctx.author.id)
-        
+    
         if not collection["duplicates"]:
             await ctx.send("❌ У вас нет дубликатов для продажи!")
             return
-        
-        # Продаём все дубликаты
+    
+    # Продаём все дубликаты
         sold_total = await db.sell_all_duplicates(ctx.author.id)
-        
-        # Обновляем баланс
+    
+    # Обновляем баланс
         await db.update_user_money(ctx.author.id, guild_id, sold_total)
-        
-        # Получаем актуальный баланс
-        user_data = await db.get_user(ctx.author.id, guild_id)
-        
+    
+    # Получаем актуальный баланс
+        balance = await db.get_user_money(ctx.author.id, guild_id)
+    
         await ctx.send(
             f"💰 Продано {len(collection['duplicates'])} дубликатов на сумму ${round(sold_total, 2)}!\n"
-            f"💵 Ваш баланс: ${round(user_data['money'], 2)}"
+            f"💵 Ваш баланс: ${round(balance, 2)}"
         )
 
 

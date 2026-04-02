@@ -18,39 +18,40 @@ class Database:
                 database=config.DB_NAME,
                 timeout=10
             )
-            print("Подключено к базе данных SpaceWeb")
+            print("✅ Подключено к базе данных")
         except Exception as e:
-            print(f"Ошибка подключения: {e}")
+            print(f"❌ Ошибка подключения: {e}")
 
-    async def get_user(self, user_id: int, guild_id: int):
+    # ========== РАБОТА С БАЛАНСОМ (таблица Hip'а) ==========
+    
+    async def get_user_money(self, user_id: int, guild_id: int):
+        """Получить баланс пользователя из таблицы Hip'а"""
         async with self.pool.acquire() as conn:
-            user = await conn.fetchrow(
-                'SELECT * FROM user_data WHERE user_id = $1 AND guild_id = $2',
+            row = await conn.fetchrow(
+                'SELECT balance FROM users WHERE user_id = $1 AND guild_id = $2',
                 user_id, guild_id
             )
-            if user:
-                return dict(user)
-            await conn.execute("""
-                INSERT INTO user_data (user_id, guild_id, username, level, xp, xp_to_next_level, messages_count, voice_minutes, money, roles)
-                VALUES ($1, $2, $3, 1, 0, 100, 0, 0, 0, $4)
-            """, user_id, guild_id, str(user_id), [])
-            return {'user_id': user_id, 'guild_id': guild_id, 'money': 0, 'level': 1, 'xp': 0}
+            return row["balance"] if row else 0
 
     async def update_user_money(self, user_id: int, guild_id: int, amount: int):
+        """Обновить баланс пользователя в таблице Hip'а"""
         async with self.pool.acquire() as conn:
             await conn.execute(
-                'UPDATE user_data SET money = money + $1 WHERE user_id = $2 AND guild_id = $3',
+                'UPDATE users SET balance = balance + $1 WHERE user_id = $2 AND guild_id = $3',
                 amount, user_id, guild_id
             )
 
+    # ========== КОЛЛЕКЦИИ ПОКЕМОНОВ (ваши таблицы) ==========
+    
     async def get_user_collection(self, user_id: int):
+        """Получить коллекцию пользователя"""
         async with self.pool.acquire() as conn:
             pokemons = await conn.fetch(
-                'SELECT pokemon_id, source, grade FROM user_pokemons WHERE user_id = $1',
+                'SELECT pokemon_id, source, grade FROM pokemon_user_pokemons WHERE user_id = $1',
                 user_id
             )
             duplicates = await conn.fetch(
-                'SELECT pokemon_id, source, grade FROM user_duplicates WHERE user_id = $1',
+                'SELECT pokemon_id, source, grade FROM pokemon_user_duplicates WHERE user_id = $1',
                 user_id
             )
             return {
@@ -60,26 +61,28 @@ class Database:
             }
 
     async def add_pokemon_to_collection(self, user_id: int, pokemon_id: int, source: str, grade: int = 0):
+        """Добавить карту в коллекцию"""
         async with self.pool.acquire() as conn:
             existing = await conn.fetchval(
-                'SELECT id FROM user_pokemons WHERE user_id = $1 AND pokemon_id = $2',
+                'SELECT id FROM pokemon_user_pokemons WHERE user_id = $1 AND pokemon_id = $2',
                 user_id, pokemon_id
             )
             if existing:
                 await conn.execute(
-                    'INSERT INTO user_duplicates (user_id, pokemon_id, source, grade) VALUES ($1, $2, $3, $4)',
+                    'INSERT INTO pokemon_user_duplicates (user_id, pokemon_id, source, grade) VALUES ($1, $2, $3, $4)',
                     user_id, pokemon_id, source, grade
                 )
             else:
                 await conn.execute(
-                    'INSERT INTO user_pokemons (user_id, pokemon_id, source, grade) VALUES ($1, $2, $3, $4)',
+                    'INSERT INTO pokemon_user_pokemons (user_id, pokemon_id, source, grade) VALUES ($1, $2, $3, $4)',
                     user_id, pokemon_id, source, grade
                 )
 
     async def sell_all_duplicates(self, user_id: int):
+        """Продать все дубликаты и вернуть сумму"""
         async with self.pool.acquire() as conn:
             duplicates = await conn.fetch(
-                'SELECT pokemon_id FROM user_duplicates WHERE user_id = $1',
+                'SELECT pokemon_id FROM pokemon_user_duplicates WHERE user_id = $1',
                 user_id
             )
             if not duplicates:
@@ -88,7 +91,7 @@ class Database:
             for dup in duplicates:
                 price = get_pokemon_price_by_id(dup['pokemon_id'])
                 total_price += price
-            await conn.execute('DELETE FROM user_duplicates WHERE user_id = $1', user_id)
+            await conn.execute('DELETE FROM pokemon_user_duplicates WHERE user_id = $1', user_id)
             return total_price
 
 # Создаём глобальный экземпляр
