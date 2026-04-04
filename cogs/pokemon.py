@@ -100,6 +100,9 @@ class PokemonCog(commands.Cog):
                                     f"стоимостью **${card['price']}** из пака **{pack_name}**!"
                                 )
                                 
+                    for card in pack:
+                        await db.add_pokemon_to_collection(interaction.user.id, card["id"], source, card['name'])
+
                     # Списание монет
                     print(f"DEBUG: Списание {cost} монет")
                     await db.update_user_money(interaction.user.id, guild_id, round(-cost))
@@ -138,7 +141,7 @@ class PokemonCog(commands.Cog):
 
                     # Класс с кнопками действий
                     class PackActions(discord.ui.View):
-                        def __init__(self, pack_cards, image_msgs, pack_info, owner_id, guild_id, auto_save=True):
+                        def __init__(self, pack_cards, image_msgs, pack_info, owner_id, guild_id):
                             super().__init__(timeout=120)
                             self.pack_cards = pack_cards
                             self.image_messages = image_msgs
@@ -146,21 +149,8 @@ class PokemonCog(commands.Cog):
                             self.owner_id = owner_id
                             self.guild_id = guild_id
                             self.text_message = None
-                            self.auto_saved = False
-                            if auto_save:
-                                self.auto_save_task = asyncio.create_task(self.auto_save())
-
-                        async def auto_save(self):
-                            await asyncio.sleep(120)
-                            if not self.auto_saved:
-                                await self.save_all_cards()
-                                await self.delete_messages()
 
                         async def save_all_cards(self):
-                            if self.auto_saved:
-                                return
-                            self.auto_saved = True
-                            # Сохраняем все карты в БД
                             for pokemon in self.pack_cards:
                                 await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], self.pack_info[1], pokemon['name'])
 
@@ -188,10 +178,6 @@ class PokemonCog(commands.Cog):
                             await interaction_button.response.defer()
                             print("DEBUG: Defer выполнен")
 
-                            self.auto_saved = True
-                            if hasattr(self, 'auto_save_task'):
-                                self.auto_save_task.cancel()
-                                print("DEBUG: Auto-save отменён")
 
                             print(f"DEBUG: owner_id = {self.owner_id}")
                             print(f"DEBUG: guild_id = {self.guild_id}")
@@ -248,13 +234,6 @@ class PokemonCog(commands.Cog):
                         @discord.ui.button(label="📦 Принять все", style=discord.ButtonStyle.success)
                         async def accept_all(self, interaction_button, button):
                             await interaction_button.response.defer()
-                            self.auto_saved = True
-                            if hasattr(self, 'auto_save_task'):
-                                self.auto_save_task.cancel()
-                            
-                            # Сохраняем все карты в БД
-                            for pokemon in self.pack_cards:
-                                await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], self.pack_info[1], pokemon['name'])
                             
                             await self.delete_messages()
                             
@@ -266,13 +245,6 @@ class PokemonCog(commands.Cog):
                         @discord.ui.button(label="🔄 Открыть еще", style=discord.ButtonStyle.primary)
                         async def open_another(self, interaction_button, button):
                             await interaction_button.response.defer()
-
-                            if not self.auto_saved:
-                                await self.save_all_cards()
-
-                            self.auto_saved = True
-                            if hasattr(self, 'auto_save_task'):
-                                self.auto_save_task.cancel()
                             await self.delete_messages()
                             
                             cost, source, pack_name = self.pack_info
