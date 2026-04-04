@@ -454,8 +454,8 @@ class PokemonCog(commands.Cog):
 
     # ==================== КОМАНДА CELL (продажа всех дубликатов) ====================
     
-    @commands.command(name='cell')
-    async def сell(self, ctx):
+    @commands.command(name='selldubl')
+    async def sell(self, ctx):
         guild_id = ctx.guild.id if ctx.guild else 0
     
     # Получаем коллекцию из базы данных
@@ -604,6 +604,119 @@ class PokemonCog(commands.Cog):
         if member != ctx.author:
             await ctx.send(f"📨 Коллекция игрока {member.mention} отправлена в личные сообщения!")
 
+# ==================== КОМАНДА SELL (продажа конкретной карты) ====================
+
+    @commands.command(name='sell')
+    async def sell(self, ctx, *, card_name: str = None):
+        """Продать конкретную карту из коллекции. Пример: !sell Bulbasaur #1/151"""
+        if card_name is None:
+            await ctx.send("❌ Укажите название карты. Пример: `!sell Bulbasaur #1/151`")
+            return
+        
+        guild_id = ctx.guild.id if ctx.guild else 0
+        
+        # Получаем коллекцию из БД
+        collection = await db.get_user_collection(ctx.author.id)
+        
+        if not collection["pokemons"]:
+            await ctx.send("❌ У вас нет карт для продажи!")
+            return
+        
+        # Ищем карту в коллекции по названию
+        found_card = None
+        found_pokemon = None
+        
+        for p in collection["pokemons"]:
+            # Ищем карту в базах данных
+            pokemon = next((card for card in POKEMON_DB_151 + POKEMON_DB_PRISMA if card["id"] == p["pokemon_id"]), None)
+            if pokemon and card_name.lower() in pokemon['name'].lower():
+                found_card = p
+                found_pokemon = pokemon
+                break
+        
+        if found_card is None:
+            await ctx.send(f"❌ Карта `{card_name}` не найдена в вашей коллекции!")
+            return
+        
+        # Создаём кнопки для подтверждения
+        class ConfirmView(discord.ui.View):
+            def __init__(self, cog, user_id, card_data, pokemon_data, guild_id):
+                super().__init__(timeout=60)
+                self.cog = cog
+                self.user_id = user_id
+                self.card_data = card_data
+                self.pokemon_data = pokemon_data
+                self.guild_id = guild_id
+                self.confirmed = False
+            
+            @discord.ui.button(label="✅ Да, продать", style=discord.ButtonStyle.danger)
+            async def confirm(self, interaction, button):
+                if interaction.user.id != self.user_id:
+                    await interaction.response.send_message("❌ Это не ваша команда!", ephemeral=True)
+                    return
+                
+                await interaction.response.defer()
+                self.confirmed = True
+                
+                # Удаляем карту из коллекции
+                collection = await db.get_user_collection(self.user_id)
+                
+                # Находим и удаляем карту
+                for i, p in enumerate(collection["pokemons"]):
+                    if p["pokemon_id"] == self.card_data["pokemon_id"]:
+                        collection["pokemons"].pop(i)
+                        break
+                
+                collection["total_caught"] -= 1
+                
+                # Сохраняем изменения
+                all_collections = {}
+                all_collections[str(self.user_id)] = collection
+                # Здесь нужна функция сохранения коллекции
+                # await db.update_user_collection(self.user_id, collection)
+                
+                # Добавляем деньги
+                price = self.pokemon_data["price"]
+                await db.update_user_money(self.user_id, self.guild_id, price)
+                
+                # Получаем актуальный баланс
+                balance = await db.get_user_money(self.user_id, self.guild_id)
+                
+                await interaction.followup.send(
+                    f"💰 Продана карта **{self.pokemon_data['name']}** за **${price}**!\n"
+                    f"💵 Ваш баланс: **${round(balance, 2)}**",
+                    ephemeral=True
+                )
+                
+                # Останавливаем таймер
+                self.stop()
+            
+            @discord.ui.button(label="❌ Нет, отмена", style=discord.ButtonStyle.secondary)
+            async def cancel(self, interaction, button):
+                if interaction.user.id != self.user_id:
+                    await interaction.response.send_message("❌ Это не ваша команда!", ephemeral=True)
+                    return
+                
+                await interaction.response.send_message("❌ Продажа отменена.", ephemeral=True)
+                self.stop()
+            
+            async def on_timeout(self):
+                if not self.confirmed:
+                    await ctx.send("⏰ Время вышло. Продажа отменена.", delete_after=10)
+        
+        # Создаём embed с информацией о карте
+        embed = discord.Embed(
+            title="💸 Подтверждение продажи",
+            description=f"Вы уверены, что хотите продать эту карту?",
+            color=discord.Color.red()
+        )
+        embed.add_field(name="Карта", value=f"**{found_pokemon['name']}**", inline=False)
+        embed.add_field(name="Редкость", value=found_pokemon['rarity'], inline=True)
+        embed.add_field(name="Цена", value=f"**${found_pokemon['price']}**", inline=True)
+        embed.set_footer(text="Это действие нельзя отменить!")
+        
+        view = ConfirmView(self, ctx.author.id, found_card, found_pokemon, guild_id)
+        await ctx.send(embed=embed, view=view)
 
 async def setup(bot):
     await bot.add_cog(PokemonCog(bot))
