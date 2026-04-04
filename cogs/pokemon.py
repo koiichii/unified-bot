@@ -408,7 +408,7 @@ class PokemonCog(commands.Cog):
                 count_50 = 0
             
                 # Счётчики для слотов (1-8)
-                slot_rare_counts = [0, 0, 0, 0, 0, 0, 0, 0,0,0]
+                slot_rare_counts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
                 for _ in range(arg):
                     if pack_name == "151":
