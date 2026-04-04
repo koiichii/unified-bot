@@ -114,5 +114,23 @@ class Database:
                         user_id, duplicate["pokemon_id"], duplicate.get("source", "unknown"), duplicate.get("grade", 0)
                     )
 
+    async def add_pokemon_to_collection(self, user_id: int, pokemon_id: int, source: str, name: str, grade: int = 0):
+        """Добавить карту в коллекцию"""
+        async with self.pool.acquire() as conn:
+            existing = await conn.fetchval(
+                'SELECT id FROM pokemon_user_pokemons WHERE user_id = $1 AND pokemon_id = $2',
+                user_id, pokemon_id
+            )
+            if existing:
+                await conn.execute(
+                    'INSERT INTO pokemon_user_duplicates (user_id, pokemon_id, source, name, grade) VALUES ($1, $2, $3, $4, $5)',
+                    user_id, pokemon_id, source, name, grade
+                )
+            else:
+                await conn.execute(
+                    'INSERT INTO pokemon_user_pokemons (user_id, pokemon_id, source, name, grade) VALUES ($1, $2, $3, $4, $5)',
+                    user_id, pokemon_id, source, name, grade
+                )
+
 # Создаём глобальный экземпляр
 db = Database()
