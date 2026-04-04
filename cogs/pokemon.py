@@ -455,7 +455,7 @@ class PokemonCog(commands.Cog):
     # ==================== КОМАНДА CELL (продажа всех дубликатов) ====================
     
     @commands.command(name='selldubl')
-    async def sell(self, ctx):
+    async def selldubl(self, ctx):
         guild_id = ctx.guild.id if ctx.guild else 0
     
     # Получаем коллекцию из базы данных
