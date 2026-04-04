@@ -69,7 +69,7 @@ def get_guaranteed_card(pokemon_list):
 def open_pack(pokemon_list, normal_weights):
     pack = []
     
-    for _ in range(7):
+    for _ in range(9):
         pack.append(random.choices(pokemon_list, weights=normal_weights, k=1)[0])
     
     pack.append(get_guaranteed_card(pokemon_list))
@@ -80,7 +80,7 @@ def open_pack_151(pokemon_list, normal_weights):
     """Специальная функция для 151 сета"""
     pack = []
     
-    for _ in range(7):
+    for _ in range(9):
         pack.append(random.choices(pokemon_list, weights=normal_weights, k=1)[0])
     
     pack.append(get_guaranteed_card_151(pokemon_list))
