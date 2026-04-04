@@ -135,7 +135,7 @@ class PokemonCog(commands.Cog):
                     print("DEBUG: Формирование текстового результата")
                     result_text = f"🎴 **{interaction.user.mention}** открыл пак {pack_name} за ${cost}!\n\n"
                     for i, card in enumerate(pack, 1):
-                        result_text += f"||{i}. **{card['name']}** ({card['rarity']}) — ${card['price']}||\n"
+                        result_text += f"||{i}. **{card['name']}** — ${card['price']}||\n"
 
                     # Класс с кнопками действий
                     class PackActions(discord.ui.View):
@@ -311,7 +311,7 @@ class PokemonCog(commands.Cog):
                             
                             result_text = f"🎴 **{interaction_button.user.mention}** открыл пак {pack_name} за ${cost}!\n\n"
                             for i, card in enumerate(new_pack, 1):
-                                result_text += f"||{i}. **{card['name']}** ({card['rarity']}) — ${card['price']}||\n"
+                                result_text += f"||{i}. **{card['name']}** — ${card['price']}||\n"
                             new_view = PackActions(new_pack, new_image_messages, (cost, source, pack_name), self.owner_id, self.guild_id)
                             msg = await interaction_button.followup.send(result_text, view=new_view)
                             new_view.text_message = msg
