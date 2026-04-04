@@ -192,7 +192,7 @@ class PokemonCog(commands.Cog):
 
                                 for pokemon in self.pack_cards:
                                     # Проверяем, есть ли карта в уникальных
-                                    existing = next((p for p in collection["pokemons"] if p["id"] == pokemon["id"]), None)
+                                    existing = next((p for p in collection["pokemons"] if p["pokemon_id"] == pokemon["id"]), None)
                                     if existing is not None:
                                         sold_count += 1
                                         sold_total += pokemon['price']
@@ -455,7 +455,7 @@ class PokemonCog(commands.Cog):
     # ==================== КОМАНДА CELL (продажа всех дубликатов) ====================
     
     @commands.command(name='cell')
-    async def cell(self, ctx):
+    async def сell(self, ctx):
         guild_id = ctx.guild.id if ctx.guild else 0
     
     # Получаем коллекцию из базы данных
@@ -493,6 +493,116 @@ class PokemonCog(commands.Cog):
         await db.update_user_money(member.id, guild_id, amount)
     
         await ctx.send(f"✅ Пользователю {member.mention} добавлено {amount} баксов!")
+
+# ==================== КОМАНДА COLLECTION (показать коллекцию) ====================
+
+    @commands.command(name='collection')
+    async def collection(self, ctx, member: discord.Member = None):
+        """Показать коллекцию покемонов игрока"""
+        if member is None:
+            member = ctx.author
+        
+        # Получаем коллекцию из БД
+        collection = await db.get_user_collection(member.id)
+        
+        if not collection["pokemons"]:
+            await ctx.send(f"📭 У игрока {member.mention} пока нет ни одного покемона в коллекции!")
+            return
+        
+        # Сортируем карты по ID (или можно по имени)
+        sorted_pokemons = sorted(collection["pokemons"], key=lambda x: x['pokemon_id'])
+        
+        # Получаем информацию о каждой карте
+        pokemon_list = []
+        for p in sorted_pokemons:
+            # Ищем карту в базах данных
+            pokemon = next((card for card in POKEMON_DB_151 + POKEMON_DB_PRISMA if card["id"] == p["pokemon_id"]), None)
+            if pokemon:
+                pokemon_list.append({
+                    "name": pokemon['name'],
+                    "rarity": pokemon['rarity'],
+                    "price": pokemon['price'],
+                    "source": p['source']
+                })
+        
+        # Создаём embed для красивого отображения
+        embed = discord.Embed(
+            title=f"📦 Коллекция {member.display_name}",
+            description=f"Всего уникальных карт: **{len(pokemon_list)}**",
+            color=discord.Color.gold()
+        )
+        
+        # Группируем по редкости
+        sir_list = []
+        ir_list = []
+        ur_list = []
+        hr_list = []
+        rr_list = []
+        rare_list = []
+        uncommon_list = []
+        common_list = []
+        
+        for p in pokemon_list:
+            if p['rarity'] == "Special_illustration_rare":
+                sir_list.append(f"• {p['name']} (${p['price']})")
+            elif p['rarity'] == "Illustration_rare":
+                ir_list.append(f"• {p['name']} (${p['price']})")
+            elif p['rarity'] == "Ultra_rare":
+                ur_list.append(f"• {p['name']} (${p['price']})")
+            elif p['rarity'] == "Hyper_rare":
+                hr_list.append(f"• {p['name']} (${p['price']})")
+            elif p['rarity'] == "Double_rare":
+                rr_list.append(f"• {p['name']} (${p['price']})")
+            elif p['rarity'] == "Rare":
+                rare_list.append(f"• {p['name']} (${p['price']})")
+            elif p['rarity'] == "Uncommon":
+                uncommon_list.append(f"• {p['name']} (${p['price']})")
+            else:
+                common_list.append(f"• {p['name']} (${p['price']})")
+        
+        # Добавляем поля в embed (только непустые)
+        if sir_list:
+            embed.add_field(name=f"✨ Special Illustration Rare ({len(sir_list)})", 
+                            value="\n".join(sir_list[:20]), inline=False)
+            if len(sir_list) > 20:
+                embed.add_field(name="", value=f"... и ещё {len(sir_list)-20} карт", inline=False)
+        
+        if ir_list:
+            embed.add_field(name=f"🎨 Illustration Rare ({len(ir_list)})", 
+                            value="\n".join(ir_list[:20]), inline=False)
+            if len(ir_list) > 20:
+                embed.add_field(name="", value=f"... и ещё {len(ir_list)-20} карт", inline=False)
+        
+        if ur_list:
+            embed.add_field(name=f"⭐ Ultra Rare ({len(ur_list)})", 
+                            value="\n".join(ur_list[:20]), inline=False)
+        
+        if hr_list:
+            embed.add_field(name=f"🌟 Hyper Rare ({len(hr_list)})", 
+                            value="\n".join(hr_list[:20]), inline=False)
+        
+        if rr_list:
+            embed.add_field(name=f"💎 Double Rare ({len(rr_list)})", 
+                            value="\n".join(rr_list[:15]), inline=False)
+        
+        if rare_list:
+            embed.add_field(name=f"🔹 Rare ({len(rare_list)})", 
+                            value="\n".join(rare_list[:15]), inline=False)
+        
+        if uncommon_list:
+            embed.add_field(name=f"🟢 Uncommon ({len(uncommon_list)})", 
+                            value="\n".join(uncommon_list[:10]), inline=False)
+        
+        if common_list:
+            embed.add_field(name=f"⚪ Common ({len(common_list)})", 
+                            value="\n".join(common_list[:10]), inline=False)
+        
+        embed.set_footer(text=f"Всего карт: {len(pokemon_list)} | Дубликатов: {len(collection['duplicates'])}")
+
+        await member.send(embed=embed)
+
+        if member != ctx.author:
+            await ctx.send(f"📨 Коллекция игрока {member.mention} отправлена в личные сообщения!")
 
 
 async def setup(bot):
