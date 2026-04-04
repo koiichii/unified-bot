@@ -44,11 +44,11 @@ class Database:
     async def get_user_collection(self, user_id: int):
         async with self.pool.acquire() as conn:
             pokemons = await conn.fetch(
-                'SELECT pokemon_id, source, grade FROM pokemon_user_pokemons WHERE user_id = $1',
+                'SELECT pokemon_id, source, name, grade FROM pokemon_user_pokemons WHERE user_id = $1',
                 user_id
             )
             duplicates = await conn.fetch(
-                'SELECT pokemon_id, source, grade FROM pokemon_user_duplicates WHERE user_id = $1',
+                'SELECT pokemon_id, source, name, grade FROM pokemon_user_duplicates WHERE user_id = $1',
                 user_id
             )
             return {
@@ -57,7 +57,6 @@ class Database:
                 "total_caught": len(pokemons) + len(duplicates)
             }
 
-    async def add_pokemon_to_collection(self, user_id: int, pokemon_id: int, source: str, grade: int = 0):
         async with self.pool.acquire() as conn:
             existing = await conn.fetchval(
                 'SELECT id FROM pokemon_user_pokemons WHERE user_id = $1 AND pokemon_id = $2',
@@ -65,13 +64,13 @@ class Database:
             )
             if existing:
                 await conn.execute(
-                    'INSERT INTO pokemon_user_duplicates (user_id, pokemon_id, source, grade) VALUES ($1, $2, $3, $4)',
-                    user_id, pokemon_id, source, grade
+                    'INSERT INTO pokemon_user_duplicates (user_id, pokemon_id, source, name, grade) VALUES ($1, $2, $3, $4, $5)',
+                    user_id, pokemon_id, source, name, grade
                 )
             else:
                 await conn.execute(
-                    'INSERT INTO pokemon_user_pokemons (user_id, pokemon_id, source, grade) VALUES ($1, $2, $3, $4)',
-                    user_id, pokemon_id, source, grade
+                    'INSERT INTO pokemon_user_pokemons (user_id, pokemon_id, source, name, grade) VALUES ($1, $2, $3, $4, $5)',
+                    user_id, pokemon_id, source, name, grade
                 )
 
     async def remove_pokemon_from_collection(self, user_id: int, pokemon_id: int):

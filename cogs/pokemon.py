@@ -162,7 +162,7 @@ class PokemonCog(commands.Cog):
                             self.auto_saved = True
                             # Сохраняем все карты в БД
                             for pokemon in self.pack_cards:
-                                await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], self.pack_info[1])
+                                await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], self.pack_info[1], pokemon['name'])
 
                         async def interaction_check(self, interaction):
                             if interaction.user.id != self.owner_id:
@@ -215,7 +215,7 @@ class PokemonCog(commands.Cog):
                                     else:
                                         new_cards.append(pokemon)
                                         print(f"DEBUG: Новая карта {pokemon['name']} добавлена в коллекцию")
-                                        await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], self.pack_info[1])
+                                        await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], self.pack_info[1], pokemon['name'])
 
                                 print(f"DEBUG: Продано {sold_count} дубликатов на сумму ${sold_total}")
 
@@ -254,7 +254,7 @@ class PokemonCog(commands.Cog):
                             
                             # Сохраняем все карты в БД
                             for pokemon in self.pack_cards:
-                                await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], self.pack_info[1])
+                                await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], self.pack_info[1], pokemon['name'])
                             
                             await self.delete_messages()
                             
