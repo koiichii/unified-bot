@@ -85,6 +85,22 @@ class PokemonCog(commands.Cog):
                         pack = open_pack(pokemon_db, normal_weights)
                     print(f"DEBUG: Открыто {len(pack)} карт")
 
+                    highlights_channel_name = "поздравления" 
+
+                    channel = None
+                    for ch in interaction.guild.channels:
+                        if ch.name == highlights_channel_name and isinstance(ch, discord.TextChannel):
+                            channel = ch
+                            break
+
+                    if channel:
+                            for card in pack:
+                                if card['price'] >= 100:
+                                    await channel.send(
+                                        f"🎉 **{interaction.user.name}** вытащил карту **{card['name']}**" 
+                                        f"стоимостью **${card['price']}** из пака **{pack_name}**!"
+                                    )
+                                
                     # Списание монет
                     print(f"DEBUG: Списание {cost} монет")
                     await db.update_user_money(interaction.user.id, guild_id, -cost)
@@ -296,7 +312,6 @@ class PokemonCog(commands.Cog):
                             result_text = f"🎴 **{interaction_button.user.mention}** открыл пак {pack_name} за ${cost}!\n\n"
                             for i, card in enumerate(new_pack, 1):
                                 result_text += f"||{i}. **{card['name']}** ({card['rarity']}) — ${card['price']}||\n"
-                            
                             new_view = PackActions(new_pack, new_image_messages, (cost, source, pack_name), self.owner_id, self.guild_id)
                             msg = await interaction_button.followup.send(result_text, view=new_view)
                             new_view.text_message = msg
