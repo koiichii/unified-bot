@@ -135,8 +135,6 @@ class PokemonCog(commands.Cog):
                     result_text = f"🎴 **{interaction.user.mention}** открыл пак {pack_name} за ${cost}!\n\n"
                     for i, card in enumerate(pack, 1):
                         result_text += f"||{i}. **{card['name']}** — ${card['price']}||\n"
-                    for pokemon in self.pack_cards:
-                                await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], self.pack_info[1], pokemon['name'])
 
                     # Класс с кнопками действий
                     class PackActions(discord.ui.View):
@@ -268,7 +266,7 @@ class PokemonCog(commands.Cog):
                         @discord.ui.button(label="🔄 Открыть еще", style=discord.ButtonStyle.primary)
                         async def open_another(self, interaction_button, button):
                             await interaction_button.response.defer()
-                            
+
                             if not self.auto_saved:
                                 await self.save_all_cards()
 
@@ -323,7 +321,7 @@ class PokemonCog(commands.Cog):
                             
                             # Сохраняем карты нового пака в БД
                             for pokemon in new_pack:
-                                await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], source)
+                                await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], source, pokemon['name'])
 
                     # Отправка сообщения с кнопками
                     print("DEBUG: Отправка сообщения с кнопками")
