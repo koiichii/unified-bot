@@ -1,4 +1,3 @@
-# cogs/pokemon.py
 import discord
 from discord.ext import commands
 import os
@@ -94,12 +93,12 @@ class PokemonCog(commands.Cog):
                             break
 
                     if channel:
-                            for card in pack:
-                                if card['price'] >= 100:
-                                    await channel.send(
-                                        f"🎉 **{interaction.user.name}** вытащил карту **{card['name']}**" 
-                                        f"стоимостью **${card['price']}** из пака **{pack_name}**!"
-                                    )
+                        for card in pack:
+                            if card['price'] >= 100:
+                                await channel.send(
+                                    f"🎉 **{interaction.user.name}** вытащил карту **{card['name']}** "
+                                    f"стоимостью **${card['price']}** из пака **{pack_name}**!"
+                                )
                                 
                     # Списание монет
                     print(f"DEBUG: Списание {cost} монет")
@@ -374,21 +373,21 @@ class PokemonCog(commands.Cog):
                 # Отладка в консоль
                 print(f"\n=== ТЕСТ: {pack_name} | {arg} паков ===")
                 print(f"Всего карт в базе: {len(pokemon_db)}")
-                
+            
                 for p in pokemon_db:
                     if "Umbreon" in p['name'] and "SIR" in p['name']:
                         idx = pokemon_db.index(p)
                         print(f"Umbreon ex SIR цена: ${p['price']}")
                         print(f"Вес Umbreon: {normal_weights[idx]:.8f}")
                         break
-                
+            
                 for p in pokemon_db:
                     if p['rarity'] == "Common" and p['price'] < 1:
                         idx = pokemon_db.index(p)
                         print(f"Обычная карта: {p['name'][:30]} цена: ${p['price']}")
                         print(f"Вес обычной карты: {normal_weights[idx]:.4f}")
                         break
-                
+            
                 print(f"Сумма весов: {sum(normal_weights):.4f}")
                 print("====================\n")
 
@@ -407,15 +406,20 @@ class PokemonCog(commands.Cog):
                 count_250 = 0
                 count_100 = 0
                 count_50 = 0
+            
+                # Счётчики для слотов (1-8)
+                slot_rare_counts = [0, 0, 0, 0, 0, 0, 0, 0]
 
                 for _ in range(arg):
                     if pack_name == "151":
                         pack = open_pack_151(pokemon_db, normal_weights)
                     else:
                         pack = open_pack(pokemon_db, normal_weights)
-                        
-                    for pokemon in pack:
+                
+                    for slot_index, pokemon in enumerate(pack):
                         count_price += pokemon["price"]
+                    
+                        # Подсчёт редкостей
                         if pokemon['rarity'] == "Special_illustration_rare":
                             count_sir += 1
                         elif pokemon['rarity'] == "Illustration_rare":
@@ -432,7 +436,8 @@ class PokemonCog(commands.Cog):
                             count_u += 1 
                         else:  
                             count_c += 1
-
+                    
+                        # Подсчёт по ценовым категориям
                         if pokemon['price'] > 1000:
                             count_1000 += 1 
                         elif 750 <= pokemon['price'] <= 1000:
@@ -444,11 +449,24 @@ class PokemonCog(commands.Cog):
                         elif 100 <= pokemon['price'] < 250:
                             count_100 += 1
                         elif 50 <= pokemon['price'] < 100:
-                            count_50 += 1 
-                
+                            count_50 += 1
+                    
+                        # Статистика по слотам
+                        is_rare_plus = pokemon['rarity'] in ["Rare", "Double_rare", "Ultra_rare", 
+                                                              "Illustration_rare", "Special_illustration_rare", 
+                                                              "Hyper_rare"]
+                        if is_rare_plus:
+                            slot_rare_counts[slot_index] += 1
+            
                 total_cost = cost * arg
                 lose = total_cost - count_price
                 around_pack = count_price / arg if arg > 0 else 0
+
+                # Формируем строку статистики по слотам
+                slot_stats = []
+                for i, count in enumerate(slot_rare_counts, 1):
+                    slot_stats.append(f"Слот {i}: {count} ({round(count / arg * 100, 2)}%)")
+                slot_stats_text = "\n".join(slot_stats)
 
                 await interaction.followup.send(f'📊 **Тест {pack_name}**\n'
                                f'Открыто: **{arg}** паков\n'
@@ -461,34 +479,35 @@ class PokemonCog(commands.Cog):
                                f'📊 Средняя стоимость пака: **${round(around_pack, 1)}**\n\n'
                                f'💎 >$1000: **{count_1000}** | $750-1000: **{count_750}**\n'
                                f'💎 $500-750: **{count_500}** | $250-500: **{count_250}**\n'
-                               f'💎 $100-250: **{count_100}** | $50-100: **{count_50}**')
+                               f'💎 $100-250: **{count_100}** | $50-100: **{count_50}**\n\n'
+                               f'📊 **Статистика выпадения Rare+ по слотам:**\n{slot_stats_text}')
 
         view = BoxSelector(ctx.message) 
         await ctx.send("**Выбери сундук для теста:**", view=view)
 
 
-    # ==================== КОМАНДА CELL (продажа всех дубликатов) ====================
+    # ==================== КОМАНДА SELLDUBL (продажа всех дубликатов) ====================
     
     @commands.command(name='selldubl')
     async def selldubl(self, ctx):
         guild_id = ctx.guild.id if ctx.guild else 0
-    
-    # Получаем коллекцию из базы данных
+        
+        # Получаем коллекцию из базы данных
         collection = await db.get_user_collection(ctx.author.id)
-    
+        
         if not collection["duplicates"]:
             await ctx.send("❌ У вас нет дубликатов для продажи!")
             return
-    
-    # Продаём все дубликаты
+        
+        # Продаём все дубликаты
         sold_total = await db.sell_all_duplicates(ctx.author.id)
-    
-    # Обновляем баланс
+        
+        # Обновляем баланс
         await db.update_user_money(ctx.author.id, guild_id, sold_total)
-    
-    # Получаем актуальный баланс
+        
+        # Получаем актуальный баланс
         balance = await db.get_user_money(ctx.author.id, guild_id)
-    
+        
         await ctx.send(
             f"💰 Продано {len(collection['duplicates'])} дубликатов на сумму ${round(sold_total, 2)}!\n"
             f"💵 Ваш баланс: ${round(balance, 2)}"
@@ -509,7 +528,8 @@ class PokemonCog(commands.Cog):
     
         await ctx.send(f"✅ Пользователю {member.mention} добавлено {amount} баксов!")
 
-# ==================== КОМАНДА COLLECTION (показать коллекцию) ====================
+
+    # ==================== КОМАНДА COLLECTION (показать коллекцию) ====================
 
     @commands.command(name='collection')
     async def collection(self, ctx, member: discord.Member = None):
@@ -614,12 +634,15 @@ class PokemonCog(commands.Cog):
         
         embed.set_footer(text=f"Всего карт: {len(pokemon_list)} | Дубликатов: {len(collection['duplicates'])}")
 
-        await member.send(embed=embed)
+        try:
+            await member.send(embed=embed)
+            if member != ctx.author:
+                await ctx.send(f"📨 Коллекция игрока {member.mention} отправлена в личные сообщения!")
+        except:
+            await ctx.send(f"❌ Не удалось отправить коллекцию {member.mention} в ЛС. Возможно, у вас закрыты личные сообщения.")
 
-        if member != ctx.author:
-            await ctx.send(f"📨 Коллекция игрока {member.mention} отправлена в личные сообщения!")
 
-# ==================== КОМАНДА SELL (продажа конкретной карты) ====================
+    # ==================== КОМАНДА SELL (продажа конкретной карты) ====================
 
     @commands.command(name='sell')
     async def sell(self, ctx, *, card_name: str = None):
@@ -674,21 +697,7 @@ class PokemonCog(commands.Cog):
                 self.confirmed = True
                 
                 # Удаляем карту из коллекции
-                collection = await db.get_user_collection(self.user_id)
-                
-                # Находим и удаляем карту
-                for i, p in enumerate(collection["pokemons"]):
-                    if p["pokemon_id"] == self.card_data["pokemon_id"]:
-                        collection["pokemons"].pop(i)
-                        break
-                
-                collection["total_caught"] -= 1
-                
-                # Сохраняем изменения
-                all_collections = {}
-                all_collections[str(self.user_id)] = collection
-                # Здесь нужна функция сохранения коллекции
-                # await db.update_user_collection(self.user_id, collection)
+                await db.remove_pokemon_from_collection(self.user_id, self.card_data["pokemon_id"])
                 
                 # Добавляем деньги
                 price = self.pokemon_data["price"]
@@ -732,6 +741,7 @@ class PokemonCog(commands.Cog):
         
         view = ConfirmView(self, ctx.author.id, found_card, found_pokemon, guild_id)
         await ctx.send(embed=embed, view=view)
+
 
 async def setup(bot):
     await bot.add_cog(PokemonCog(bot))
