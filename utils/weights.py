@@ -51,7 +51,7 @@ def get_guaranteed_card_151(pokemon_list):
     if not rare_plus:
         return random.choice(pokemon_list)
     
-    weights = [1 / (p["price"] ** 0.75) for p in rare_plus] 
+    weights = [1 / (p["price"] ** 0.60) for p in rare_plus] 
     return random.choices(rare_plus, weights=weights, k=1)[0]
 
 def get_guaranteed_card(pokemon_list):

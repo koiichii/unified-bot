@@ -102,7 +102,7 @@ class PokemonCog(commands.Cog):
                                 
                     # Списание монет
                     print(f"DEBUG: Списание {cost} монет")
-                    await db.update_user_money(interaction.user.id, guild_id, -cost)
+                    await db.update_user_money(interaction.user.id, guild_id, round(-cost))
 
                     # Отправка изображений
                     print("DEBUG: Отправка изображений...")
@@ -221,7 +221,7 @@ class PokemonCog(commands.Cog):
 
                                 # Обновляем баланс в базе данных
                                 print(f"DEBUG: Обновление баланса пользователя {self.owner_id} на +{sold_total}")
-                                await db.update_user_money(self.owner_id, self.guild_id, sold_total)
+                                await db.update_user_money(self.owner_id, self.guild_id, round(sold_total, 2))
                                 print("DEBUG: Баланс обновлён")
 
                                 await self.delete_messages()
@@ -292,7 +292,7 @@ class PokemonCog(commands.Cog):
                                 new_pack = open_pack(pokemon_db, normal_weights)
                             
                             # Списываем монеты
-                            await db.update_user_money(self.owner_id, self.guild_id, -cost)
+                            await db.update_user_money(self.owner_id, self.guild_id, round(-cost, 2))
                             
                             new_image_messages = []
                             for card in new_pack:
@@ -503,7 +503,7 @@ class PokemonCog(commands.Cog):
         sold_total = await db.sell_all_duplicates(ctx.author.id)
         
         # Обновляем баланс
-        await db.update_user_money(ctx.author.id, guild_id, sold_total)
+        await db.update_user_money(ctx.author.id, guild_id, round(sold_total, 2))
         
         # Получаем актуальный баланс
         balance = await db.get_user_money(ctx.author.id, guild_id)
@@ -701,7 +701,7 @@ class PokemonCog(commands.Cog):
                 
                 # Добавляем деньги
                 price = self.pokemon_data["price"]
-                await db.update_user_money(self.user_id, self.guild_id, price)
+                await db.update_user_money(self.user_id, self.guild_id, round(price, 2))
                 
                 # Получаем актуальный баланс
                 balance = await db.get_user_money(self.user_id, self.guild_id)
