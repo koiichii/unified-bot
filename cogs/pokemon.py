@@ -121,10 +121,12 @@ class PackActions(discord.ui.View):
 
     @discord.ui.button(label="🔄 Открыть еще", style=discord.ButtonStyle.primary)
     async def open_another(self, interaction, button):
+        print("DEBUG: open_another вызвана")
         await self.delete_messages()
         await interaction.response.defer()
     
         cost, source, pack_name = self.pack_info
+        print(f"DEBUG: cost={cost}, source={source}, pack_name={pack_name}")
     
         if pack_name == "151":
             pokemon_db = POKEMON_DB_151
@@ -134,42 +136,54 @@ class PackActions(discord.ui.View):
             normal_weights = NORMAL_WEIGHTS_PRISMA
     
         user_balance = await db.get_user_money(self.owner_id, self.guild_id)
+        print(f"DEBUG: user_balance={user_balance}, cost={cost}")
+    
         if user_balance < cost:
             await interaction.followup.send(f"❌ Нужно {cost} монет!", ephemeral=True)
             return
     
-        new_pack = open_pack_151(pokemon_db, normal_weights) if pack_name == "151" else open_pack(pokemon_db, normal_weights)
+        print("DEBUG: Открываем новый пак")
+        if pack_name == "151":
+            new_pack = open_pack_151(pokemon_db, normal_weights)
+        else:
+            new_pack = open_pack(pokemon_db, normal_weights)
+        print(f"DEBUG: Новый пак открыт, {len(new_pack)} карт")
     
-        # Сохраняем карты нового пака
+    # Сохраняем карты нового пака
         for card in new_pack:
             await db.add_pokemon_to_collection(self.owner_id, card["id"], source, card['name'])
     
         await db.update_user_money(self.owner_id, self.guild_id, round(-cost, 2))
     
-        # СОЗДАЁМ VIEW ПЕРЕД ОТПРАВКОЙ ИЗОБРАЖЕНИЙ
+    # СОЗДАЁМ VIEW ПЕРЕД ОТПРАВКОЙ ИЗОБРАЖЕНИЙ
         new_view = PackActions(new_pack, (cost, source, pack_name), self.owner_id, self.guild_id)
     
-        # Отправляем изображения и сохраняем их
-        for card in new_pack:
+    # Отправляем изображения и сохраняем их
+        for idx, card in enumerate(new_pack):
             try:
+                print(f"DEBUG: Отправка изображения {idx+1} для {card['name']}")
                 async with aiohttp.ClientSession() as session:
                     async with session.get(card['image']) as resp:
-                            if resp.status == 200:
-                                image_data = await resp.read()
-                                msg = await interaction.followup.send(
-                                    file=discord.File(fp=io.BytesIO(image_data), filename=f"SPOILER_{card['name']}.png")
-                                )
-                                new_view.image_messages.append(msg)
+                        if resp.status == 200:
+                            image_data = await resp.read()
+                            msg = await interaction.followup.send(
+                                file=discord.File(fp=io.BytesIO(image_data), filename=f"SPOILER_{card['name']}.png")
+                            )
+                            new_view.image_messages.append(msg)
+                            print(f"DEBUG: Изображение {card['name']} отправлено")
+                        else:
+                            print(f"DEBUG: Ошибка загрузки {card['name']}: статус {resp.status}")
             except Exception as e:
                 print(f"Ошибка: {e}")
     
-        # Текстовый результат
+    # Текстовый результат
         result_text = f"🎴 **{interaction.user.mention}** открыл пак {pack_name} за ${cost}!\n\n"
         for i, card in enumerate(new_pack, 1):
             result_text += f"||{i}. **{card['name']}** — ${card['price']}||\n"
     
         msg = await interaction.followup.send(result_text, view=new_view)
         new_view.text_message = msg
+        print("DEBUG: open_another завершена")
 
 # ==================== ОСНОВНОЙ КОГ ====================
 
