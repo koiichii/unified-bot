@@ -21,42 +21,37 @@ from discord import app_commands
 sys.path.append('C:/Users/bilya/unified_bot')
 
 
+async def pack_autocomplete(interaction: discord.Interaction, current: str):
+    packs = [
+        ("151 Booster - 10 баксов", "151"),
+        ("Prismatic Evolution Booster - 20 баксов", "prismatic")
+    ]
+    return [
+        app_commands.Choice(name=name, value=value)
+        for name, value in packs if current.lower() in name.lower()
+    ][:25]
+
+async def sell_autocomplete(interaction: discord.Interaction, current: str):
+    collection = await db.get_user_collection(interaction.user.id)
+    
+    if not collection["pokemons"]:
+        return []
+    
+    suggestions = []
+    for p in collection["pokemons"]:
+        pokemon = next((card for card in POKEMON_DB_151 + POKEMON_DB_PRISMA 
+                    if card["id"] == p["pokemon_id"]), None)
+        if pokemon:
+            name = pokemon['name']
+            if current.lower() in name.lower():
+                suggestions.append(app_commands.Choice(name=name[:100], value=name[:100]))
+    
+    return suggestions[:25]
+
+
 class PokemonCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    # ==================== AUTOCOMPLETE ФУНКЦИИ ====================
-    
-    @staticmethod
-    async def pack_autocomplete(interaction: discord.Interaction, current: str):
-        """Автодополнение для выбора пака"""
-        packs = [
-            ("151 Booster - 10 баксов", "151"),
-            ("Prismatic Evolution Booster - 20 баксов", "prismatic")
-        ]
-        return [
-            app_commands.Choice(name=name, value=value)
-            for name, value in packs if current.lower() in name.lower()
-        ][:25]
-
-    @staticmethod
-    async def sell_autocomplete(interaction: discord.Interaction, current: str):
-        """Автодополнение для выбора карты на продажу"""
-        collection = await db.get_user_collection(interaction.user.id)
-    
-        if not collection["pokemons"]:
-            return []
-    
-        suggestions = []
-        for p in collection["pokemons"]:
-            pokemon = next((card for card in POKEMON_DB_151 + POKEMON_DB_PRISMA 
-                        if card["id"] == p["pokemon_id"]), None)
-            if pokemon:
-                name = pokemon['name']
-                if current.lower() in name.lower():
-                    suggestions.append(app_commands.Choice(name=name[:100], value=name[:100]))
-    
-        return suggestions[:25]
 
     # ==================== КОМАНДА GACHA ====================
     
