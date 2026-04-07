@@ -125,11 +125,11 @@ class PackActions(discord.ui.View):
     
         try:
             print("DEBUG: Удаляем сообщения")
-            await self.delete_messages()
+            await interaction.response.defer()
             print("DEBUG: Сообщения удалены")
         
             print("DEBUG: Вызываем defer")
-            await interaction.response.defer()
+            await self.delete_messages()
             print("DEBUG: Defer выполнен")
         
             cost, source, pack_name = self.pack_info
