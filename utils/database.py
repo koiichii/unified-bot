@@ -132,5 +132,14 @@ class Database:
                     user_id, pokemon_id, source, name, grade
                 )
 
+    async def get_user_duplicates(self, user_id: int):
+        async with self.pool.acquire() as conn:
+            duplicates = await conn.fetch(
+                'SELECT pokemon_id FROM pokemon_user_duplicates WHERE user_id = $1',
+                user_id
+            )
+            return [dict(d) for d in duplicates]
+        
+        
 # Создаём глобальный экземпляр
 db = Database()

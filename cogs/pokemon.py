@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-import os
+from discord import app_commands
 import aiohttp
 import io
 import asyncio
@@ -13,10 +13,7 @@ from utils.weights import (
     open_pack_151
 )
 from utils.database import db
-from utils.prices import get_pokemon_price_by_id
 import sys
-from utils.decorators import check_and_add_coins
-from discord import app_commands
 
 sys.path.append('C:/Users/bilya/unified_bot')
 
@@ -39,73 +36,94 @@ async def sell_autocomplete(interaction: discord.Interaction, current: str):
     if not collection["pokemons"]:
         return []
     
+    # Получаем дубликаты для подсчёта количества
+    all_duplicates = await db.get_user_duplicates(interaction.user.id)
+    duplicate_counts = {}
+    for dup in all_duplicates:
+        duplicate_counts[dup['pokemon_id']] = duplicate_counts.get(dup['pokemon_id'], 0) + 1
+    
     suggestions = []
     for p in collection["pokemons"]:
         pokemon = next((card for card in POKEMON_DB_151 + POKEMON_DB_PRISMA 
                     if card["id"] == p["pokemon_id"]), None)
         if pokemon:
             name = pokemon['name']
+            price = pokemon['price']
+            count = duplicate_counts.get(p["pokemon_id"], 0) + 1
+            display_name = f"{name} — ${price} (x{count})"
+            
             if current.lower() in name.lower():
-                suggestions.append(app_commands.Choice(name=name[:100], value=name[:100]))
+                suggestions.append(app_commands.Choice(name=display_name[:100], value=name))
     
     return suggestions[:25]
 
 
+# ==================== КНОПКИ ДЛЯ ПАКА ====================
+
 class PackActions(discord.ui.View):
-    """Кнопки для управления открытым паком"""
     def __init__(self, pack_cards, pack_info, owner_id, guild_id):
         super().__init__(timeout=120)
         self.pack_cards = pack_cards
         self.pack_info = pack_info  # (cost, source, pack_name)
         self.owner_id = owner_id
         self.guild_id = guild_id
-        self.text_message = None
-
+        self.image_messages = []  
+        self.text_message = None 
     async def interaction_check(self, interaction):
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message("❌ Эти кнопки только для того, кто открыл пак!", ephemeral=True)
             return False
         return True
-
+    async def delete_messages(self):
+        for msg in self.image_messages:
+            try:
+                await msg.delete()
+            except:
+                pass
+        if self.text_message:
+            try:
+                await self.text_message.delete()
+            except:
+                pass
     @discord.ui.button(label="💰 Продать дубликаты", style=discord.ButtonStyle.danger)
-    async def sell_duplicates(self, interaction_button, button):
-        await interaction_button.response.defer()
+    async def sell_duplicates(self, interaction, button):
+        await self.delete_messages()
+        await interaction.response.defer()
+        
         collection = await db.get_user_collection(self.owner_id)
         
         sold_count = 0
         sold_total = 0
-        new_cards = []
         
         for pokemon in self.pack_cards:
             existing = next((p for p in collection["pokemons"] if p["pokemon_id"] == pokemon["id"]), None)
             if existing is not None:
                 sold_count += 1
                 sold_total += pokemon['price']
-            else:
-                new_cards.append(pokemon)
-                await db.add_pokemon_to_collection(self.owner_id, pokemon["id"], self.pack_info[1], pokemon['name'])
         
         await db.update_user_money(self.owner_id, self.guild_id, round(sold_total, 2))
         balance = await db.get_user_money(self.owner_id, self.guild_id)
         
-        await interaction_button.followup.send(
+        await interaction.followup.send(
             f"💰 Продано {sold_count} дубликатов на сумму ${round(sold_total, 2)}!\n"
-            f"✨ Добавлено {len(new_cards)} новых карт.\n"
             f"💵 Баланс: ${round(balance, 2)}",
             ephemeral=True
         )
 
     @discord.ui.button(label="📦 Принять все", style=discord.ButtonStyle.success)
-    async def accept_all(self, interaction_button, button):
-        await interaction_button.response.defer()
-        await interaction_button.followup.send(
+    async def accept_all(self, interaction, button):
+        await self.delete_messages()
+        await interaction.response.defer()
+        await interaction.followup.send(
             f"✅ Все {len(self.pack_cards)} карт уже в коллекции!",
             ephemeral=True
         )
 
     @discord.ui.button(label="🔄 Открыть еще", style=discord.ButtonStyle.primary)
-    async def open_another(self, interaction_button, button):
-        await interaction_button.response.defer()
+    async def open_another(self, interaction, button):
+        await self.delete_messages()
+        await interaction.response.defer()
+        
         cost, source, pack_name = self.pack_info
         
         if pack_name == "151":
@@ -117,14 +135,16 @@ class PackActions(discord.ui.View):
         
         user_balance = await db.get_user_money(self.owner_id, self.guild_id)
         if user_balance < cost:
-            await interaction_button.followup.send(f"❌ Нужно {cost} монет!", ephemeral=True)
+            await interaction.followup.send(f"❌ Нужно {cost} монет!", ephemeral=True)
             return
         
         new_pack = open_pack_151(pokemon_db, normal_weights) if pack_name == "151" else open_pack(pokemon_db, normal_weights)
-        await db.update_user_money(self.owner_id, self.guild_id, round(-cost, 2))
         
+        # Сохраняем карты нового пака
         for card in new_pack:
             await db.add_pokemon_to_collection(self.owner_id, card["id"], source, card['name'])
+        
+        await db.update_user_money(self.owner_id, self.guild_id, round(-cost, 2))
         
         # Отправляем изображения
         for card in new_pack:
@@ -133,64 +153,61 @@ class PackActions(discord.ui.View):
                     async with session.get(card['image']) as resp:
                         if resp.status == 200:
                             image_data = await resp.read()
-                            await interaction_button.followup.send(
+                            await interaction.followup.send(
                                 file=discord.File(fp=io.BytesIO(image_data), filename=f"SPOILER_{card['name']}.png")
                             )
             except Exception as e:
                 print(f"Ошибка: {e}")
         
-        result_text = f"🎴 **{interaction_button.user.mention}** открыл пак {pack_name} за ${cost}!\n\n"
+        result_text = f"🎴 **{interaction.user.mention}** открыл пак {pack_name} за ${cost}!\n\n"
         for i, card in enumerate(new_pack, 1):
             result_text += f"||{i}. **{card['name']}** — ${card['price']}||\n"
         
         new_view = PackActions(new_pack, (cost, source, pack_name), self.owner_id, self.guild_id)
-        await interaction_button.followup.send(result_text, view=new_view)
+        await interaction.followup.send(result_text, view=new_view)
 
+# ==================== ОСНОВНОЙ КОГ ====================
 
 class PokemonCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    async def _open_pack_and_send(self, ctx_or_interaction, cost, source, pack_name, is_interaction=False):
-        """Общая логика открытия пака и отправки результата"""
-        # Определяем тип (префиксная команда или слэш)
-        if is_interaction:
-            send_func = ctx_or_interaction.followup.send
-            user = ctx_or_interaction.user
-            guild_id = ctx_or_interaction.guild.id if ctx_or_interaction.guild else 0
-            respond = ctx_or_interaction.response
-        else:
-            send_func = ctx_or_interaction.send
-            user = ctx_or_interaction.author
-            guild_id = ctx_or_interaction.guild.id if ctx_or_interaction.guild else 0
-            respond = None
+    # ==================== GACHA ====================
+    
+    @app_commands.command(name='gacha', description='Открыть пак с покемонами')
+    @app_commands.autocomplete(pack=pack_autocomplete)
+    async def gacha(self, interaction: discord.Interaction, pack: str):
+        """Открыть пак с покемонами"""
+        await interaction.response.defer()
         
-        # Выбор базы данных
-        if pack_name == "151":
-            pokemon_db = POKEMON_DB_151
-            normal_weights = NORMAL_WEIGHTS_151
+        if pack == "151":
+            cost, source, pack_name = 10, "151", "151"
         else:
-            pokemon_db = POKEMON_DB_PRISMA
-            normal_weights = NORMAL_WEIGHTS_PRISMA
+            cost, source, pack_name = 20, "Prismatic Evolution", "Prismatic Evolution"
         
-        # Проверка баланса
-        user_balance = await db.get_user_money(user.id, guild_id)
+        guild_id = interaction.guild.id if interaction.guild else 0
+        user_balance = await db.get_user_money(interaction.user.id, guild_id)
+        
         if user_balance < cost:
-            await send_func(f"❌ Недостаточно денег! Нужно {cost} монет. А у тебя {user_balance}")
+            await interaction.followup.send(f"❌ Недостаточно денег! Нужно {cost} монет. А у тебя {user_balance}")
             return
         
         # Открытие пака
         if pack_name == "151":
+            pokemon_db = POKEMON_DB_151
+            normal_weights = NORMAL_WEIGHTS_151
             pack_cards = open_pack_151(pokemon_db, normal_weights)
         else:
+            pokemon_db = POKEMON_DB_PRISMA
+            normal_weights = NORMAL_WEIGHTS_PRISMA
             pack_cards = open_pack(pokemon_db, normal_weights)
         
         # Сохранение карт
         for card in pack_cards:
-            await db.add_pokemon_to_collection(user.id, card["id"], source, card['name'])
+            await db.add_pokemon_to_collection(interaction.user.id, card["id"], source, card['name'])
         
         # Списание монет
-        await db.update_user_money(user.id, guild_id, round(-cost))
+        await db.update_user_money(interaction.user.id, guild_id, round(-cost))
         
         # Отправка изображений
         for card in pack_cards:
@@ -199,263 +216,170 @@ class PokemonCog(commands.Cog):
                     async with session.get(card['image']) as resp:
                         if resp.status == 200:
                             image_data = await resp.read()
-                            await send_func(
+                            msg = await interaction.followup.send(
                                 file=discord.File(
                                     fp=io.BytesIO(image_data),
                                     filename=f"SPOILER_{card['name']}.png"
                                 )
                             )
+                            view.image_messages.append(msg)
             except Exception as e:
                 print(f"Ошибка загрузки {card['name']}: {e}")
         
         # Текстовый результат
-        result_text = f"🎴 **{user.mention}** открыл пак {pack_name} за ${cost}!\n\n"
+        result_text = f"🎴 **{interaction.user.mention}** открыл пак {pack_name} за ${cost}!\n\n"
         for i, card in enumerate(pack_cards, 1):
             result_text += f"||{i}. **{card['name']}** — ${card['price']}||\n"
         
         # Кнопки
-        view = PackActions(pack_cards, (cost, source, pack_name), user.id, guild_id)
-        await send_func(result_text, view=view)
+        view = PackActions(pack_cards, (cost, source, pack_name), interaction.user.id, guild_id)
+        await interaction.followup.send(result_text, view=view)
 
-    # ==================== КОМАНДА GACHA ====================
+
+    # ==================== TEST_CHANCE ====================
     
-    @commands.hybrid_command(name='gacha', description='Открыть пак с покемонами')
-    @app_commands.autocomplete(pack=pack_autocomplete)
-    async def gacha(self, ctx, pack: str = None):
-        """Открыть пак. Можно выбрать через /gacha pack: или через кнопки"""
+    @app_commands.command(name='test_chance', description='Тест вероятностей выпадения карт')
+    async def test_chance(self, interaction: discord.Interaction, packs: int):
+        """Тест вероятностей на N паках"""
+        await interaction.response.defer()
         
-        # Если пак выбран через слэш-команду
-        if pack is not None:
-            if pack == "151":
-                cost, source, pack_name = 10, "151", "151"
-            else:
-                cost, source, pack_name = 20, "Prismatic Evolution", "Prismatic Evolution"
-            
-            await self._open_pack_and_send(ctx, cost, source, pack_name, is_interaction=False)
-            return
+        # Здесь можно добавить выбор сета, пока оба
+        pokemon_db = POKEMON_DB_PRISMA
+        normal_weights = NORMAL_WEIGHTS_PRISMA
+        cost = 20
         
-        # Иначе показываем кнопки выбора пака
-        class BoxSelector(discord.ui.View):
-            def __init__(self, original_message):
-                super().__init__(timeout=60)
-                self.original_message = original_message
-
-            @discord.ui.button(label="151 Booster - 10 баксов", style=discord.ButtonStyle.primary)
-            async def booster_151(self, interaction, button):
-                await interaction.response.defer()
-                await self._process_gacha(interaction, cost=10, source="151", pack_name="151")
-
-            @discord.ui.button(label="Prismatic Evolution Booster - 20 баксов", style=discord.ButtonStyle.success)
-            async def booster_prisma(self, interaction, button):
-                await interaction.response.defer()
-                await self._process_gacha(interaction, cost=20, source="Prismatic Evolution", pack_name="Prismatic Evolution")
-
-            async def _process_gacha(self, interaction, cost, source, pack_name):
-                try:
-                    await self.original_message.delete()
-                except:
-                    pass
-                await self._open_pack_and_send(interaction, cost, source, pack_name, is_interaction=True)
-
-        view = BoxSelector(ctx.message)
-        await ctx.send("**Выбери сундук:**", view=view)
-
-
-    # ==================== КОМАНДА TEST_CHANCE ====================
-    
-    @commands.hybrid_command(name='test_chance', description='Тест вероятностей выпадения карт')
-    async def test_chance(self, ctx, arg: int):
-        class BoxSelector(discord.ui.View):
-            def __init__(self, original_message):
-                super().__init__(timeout=60)
-                self.original_message = original_message
-
-            @discord.ui.button(label="151 Booster - 10 баксов", style=discord.ButtonStyle.primary)
-            async def booster_151(self, interaction, button):
-                await interaction.response.defer()
-                await self.process_gacha(interaction, arg=arg, pack_name="151")
-
-            @discord.ui.button(label="Prismatic Evolution Booster - 20 баксов", style=discord.ButtonStyle.success)
-            async def booster_prisma(self, interaction, button):
-                await interaction.response.defer()
-                await self.process_gacha(interaction, arg=arg, pack_name="Prismatic Evolution")
-
-            async def process_gacha(self, interaction, arg, pack_name):
-                try:
-                    await self.original_message.delete()
-                except:
-                    pass
-
-                if pack_name == "151":
-                    pokemon_db = POKEMON_DB_151
-                    normal_weights = NORMAL_WEIGHTS_151
-                    cost = 10
-                else:
-                    pokemon_db = POKEMON_DB_PRISMA
-                    normal_weights = NORMAL_WEIGHTS_PRISMA
-                    cost = 20
-
-                # Отладка в консоль
-                print(f"\n=== ТЕСТ: {pack_name} | {arg} паков ===")
-                print(f"Всего карт в базе: {len(pokemon_db)}")
-            
-                for p in pokemon_db:
-                    if "Umbreon" in p['name'] and "SIR" in p['name']:
-                        idx = pokemon_db.index(p)
-                        print(f"Umbreon ex SIR цена: ${p['price']}")
-                        print(f"Вес Umbreon: {normal_weights[idx]:.8f}")
-                        break
-            
-                for p in pokemon_db:
-                    if p['rarity'] == "Common" and p['price'] < 1:
-                        idx = pokemon_db.index(p)
-                        print(f"Обычная карта: {p['name'][:30]} цена: ${p['price']}")
-                        print(f"Вес обычной карты: {normal_weights[idx]:.4f}")
-                        break
-            
-                print(f"Сумма весов: {sum(normal_weights):.4f}")
-                print("====================\n")
-
-                count_price = 0
-                count_sir = 0
-                count_ir = 0
-                count_ur = 0
-                count_hr = 0
-                count_rr = 0
-                count_r = 0
-                count_u = 0
-                count_c = 0
-                count_1000 = 0
-                count_750 = 0
-                count_500 = 0
-                count_250 = 0
-                count_100 = 0
-                count_50 = 0
-            
-                # Счётчики для слотов (1-10)
-                slot_rare_counts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-
-                for _ in range(arg):
-                    if pack_name == "151":
-                        pack = open_pack_151(pokemon_db, normal_weights)
-                    else:
-                        pack = open_pack(pokemon_db, normal_weights)
+        count_price = 0
+        count_sir = 0
+        count_ir = 0
+        count_ur = 0
+        count_hr = 0
+        count_rr = 0
+        count_r = 0
+        count_u = 0
+        count_c = 0
+        count_1000 = 0
+        count_750 = 0
+        count_500 = 0
+        count_250 = 0
+        count_100 = 0
+        count_50 = 0
+        
+        slot_rare_counts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        
+        for _ in range(packs):
+            pack = open_pack(pokemon_db, normal_weights)
+            for slot_index, pokemon in enumerate(pack):
+                count_price += pokemon["price"]
                 
-                    for slot_index, pokemon in enumerate(pack):
-                        count_price += pokemon["price"]
-                    
-                        # Подсчёт редкостей
-                        if pokemon['rarity'] == "Special_illustration_rare":
-                            count_sir += 1
-                        elif pokemon['rarity'] == "Illustration_rare":
-                            count_ir += 1
-                        elif pokemon['rarity'] == "Ultra_rare":
-                            count_ur += 1 
-                        elif pokemon['rarity'] == "Hyper_rare":
-                            count_hr += 1 
-                        elif pokemon['rarity'] == "Double_rare":
-                            count_rr += 1
-                        elif pokemon['rarity'] == "Rare":
-                            count_r += 1
-                        elif pokemon['rarity'] == "Uncommon":
-                            count_u += 1 
-                        else:  
-                            count_c += 1
-                    
-                        # Подсчёт по ценовым категориям
-                        if pokemon['price'] > 1000:
-                            count_1000 += 1 
-                        elif 750 <= pokemon['price'] <= 1000:
-                            count_750 += 1
-                        elif 500 <= pokemon['price'] < 750:
-                            count_500 += 1
-                        elif 250 <= pokemon['price'] < 500:
-                            count_250 += 1
-                        elif 100 <= pokemon['price'] < 250:
-                            count_100 += 1
-                        elif 50 <= pokemon['price'] < 100:
-                            count_50 += 1
-                    
-                        # Статистика по слотам
-                        is_rare_plus = pokemon['rarity'] in ["Rare", "Double_rare", "Ultra_rare", 
-                                                              "Illustration_rare", "Special_illustration_rare", 
-                                                              "Hyper_rare"]
-                        if is_rare_plus:
-                            slot_rare_counts[slot_index] += 1
-            
-                total_cost = cost * arg
-                lose = total_cost - count_price
-                around_pack = count_price / arg if arg > 0 else 0
-
-                # Формируем строку статистики по слотам
-                slot_stats = []
-                for i, count in enumerate(slot_rare_counts, 1):
-                    slot_stats.append(f"Слот {i}: {count} ({round(count / arg * 100, 2)}%)")
-                slot_stats_text = "\n".join(slot_stats)
-
-                await interaction.followup.send(f'📊 **Тест {pack_name}**\n'
-                               f'Открыто: **{arg}** паков\n'
-                               f'Сумма выигрыша: **${round(count_price, 1)}**\n'
-                               f'SIR: **{count_sir}** | IR: **{count_ir}** | UR: **{count_ur}**\n'
-                               f'HR: **{count_hr}** | RR: **{count_rr}** | R: **{count_r}**\n'
-                               f'U: **{count_u}** | C: **{count_c}**\n\n'
-                               f'💰 Потрачено: **${total_cost}**\n'
-                               f'📉 Игрок **{"потерял" if lose > 0 else "выиграл"} ${abs(round(lose, 1))}**\n'
-                               f'📊 Средняя стоимость пака: **${round(around_pack, 1)}**\n\n'
-                               f'💎 >$1000: **{count_1000}** | $750-1000: **{count_750}**\n'
-                               f'💎 $500-750: **{count_500}** | $250-500: **{count_250}**\n'
-                               f'💎 $100-250: **{count_100}** | $50-100: **{count_50}**\n\n'
-                               f'📊 **Статистика выпадения Rare+ по слотам:**\n{slot_stats_text}')
-
-        view = BoxSelector(ctx.message) 
-        await ctx.send("**Выбери сундук для теста:**", view=view)
-
-
-    # ==================== КОМАНДА SELLDUBL ====================
-    
-    @commands.hybrid_command(name='selldubl', description='Продать все дубликаты из коллекции')
-    async def selldubl(self, ctx):
-        guild_id = ctx.guild.id if ctx.guild else 0
+                if pokemon['rarity'] == "Special_illustration_rare":
+                    count_sir += 1
+                elif pokemon['rarity'] == "Illustration_rare":
+                    count_ir += 1
+                elif pokemon['rarity'] == "Ultra_rare":
+                    count_ur += 1 
+                elif pokemon['rarity'] == "Hyper_rare":
+                    count_hr += 1 
+                elif pokemon['rarity'] == "Double_rare":
+                    count_rr += 1
+                elif pokemon['rarity'] == "Rare":
+                    count_r += 1
+                elif pokemon['rarity'] == "Uncommon":
+                    count_u += 1 
+                else:  
+                    count_c += 1
+                
+                if pokemon['price'] > 1000:
+                    count_1000 += 1 
+                elif 750 <= pokemon['price'] <= 1000:
+                    count_750 += 1
+                elif 500 <= pokemon['price'] < 750:
+                    count_500 += 1
+                elif 250 <= pokemon['price'] < 500:
+                    count_250 += 1
+                elif 100 <= pokemon['price'] < 250:
+                    count_100 += 1
+                elif 50 <= pokemon['price'] < 100:
+                    count_50 += 1
+                
+                is_rare_plus = pokemon['rarity'] in ["Rare", "Double_rare", "Ultra_rare", 
+                                                      "Illustration_rare", "Special_illustration_rare", 
+                                                      "Hyper_rare"]
+                if is_rare_plus:
+                    slot_rare_counts[slot_index] += 1
         
-        collection = await db.get_user_collection(ctx.author.id)
+        total_cost = cost * packs
+        lose = total_cost - count_price
+        around_pack = count_price / packs if packs > 0 else 0
+        
+        slot_stats = []
+        for i, count in enumerate(slot_rare_counts, 1):
+            slot_stats.append(f"Слот {i}: {count} ({round(count / packs * 100, 2)}%)")
+        slot_stats_text = "\n".join(slot_stats)
+        
+        await interaction.followup.send(
+            f'📊 **Тест Prismatic Evolution**\n'
+            f'Открыто: **{packs}** паков\n'
+            f'Сумма выигрыша: **${round(count_price, 1)}**\n'
+            f'SIR: **{count_sir}** | IR: **{count_ir}** | UR: **{count_ur}**\n'
+            f'HR: **{count_hr}** | RR: **{count_rr}** | R: **{count_r}**\n'
+            f'U: **{count_u}** | C: **{count_c}**\n\n'
+            f'💰 Потрачено: **${total_cost}**\n'
+            f'📉 Игрок **{"потерял" if lose > 0 else "выиграл"} ${abs(round(lose, 1))}**\n'
+            f'📊 Средняя стоимость пака: **${round(around_pack, 1)}**\n\n'
+            f'💎 >$1000: **{count_1000}** | $750-1000: **{count_750}**\n'
+            f'💎 $500-750: **{count_500}** | $250-500: **{count_250}**\n'
+            f'💎 $100-250: **{count_100}** | $50-100: **{count_50}**\n\n'
+            f'📊 **Статистика выпадения Rare+ по слотам:**\n{slot_stats_text}'
+        )
+
+
+    # ==================== SELLDUBL ====================
+    
+    @app_commands.command(name='selldubl', description='Продать все дубликаты из коллекции')
+    async def selldubl(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        guild_id = interaction.guild.id if interaction.guild else 0
+        collection = await db.get_user_collection(interaction.user.id)
         
         if not collection["duplicates"]:
-            await ctx.send("❌ У вас нет дубликатов для продажи!")
+            await interaction.followup.send("❌ У вас нет дубликатов для продажи!", ephemeral=True)
             return
         
-        sold_total = await db.sell_all_duplicates(ctx.author.id)
-        await db.update_user_money(ctx.author.id, guild_id, round(sold_total, 2))
-        balance = await db.get_user_money(ctx.author.id, guild_id)
+        sold_total = await db.sell_all_duplicates(interaction.user.id)
+        await db.update_user_money(interaction.user.id, guild_id, round(sold_total, 2))
+        balance = await db.get_user_money(interaction.user.id, guild_id)
         
-        await ctx.send(
+        await interaction.followup.send(
             f"💰 Продано {len(collection['duplicates'])} дубликатов на сумму ${round(sold_total, 2)}!\n"
             f"💵 Ваш баланс: ${round(balance, 2)}"
         )
 
 
-    # ==================== КОМАНДА ADD_MONEY ====================
+    # ==================== ADD_MONEY ====================
     
-    @commands.hybrid_command(name='add_money', description='Добавить монеты пользователю (только для админов)')
-    @commands.has_permissions(administrator=True)
-    async def add_money(self, ctx, amount: int, member: discord.Member = None):
-        if member is None:
-            member = ctx.author
-        guild_id = ctx.guild.id if ctx.guild else 0
+    @app_commands.command(name='add_money', description='Добавить монеты пользователю (только для админов)')
+    @app_commands.default_permissions(administrator=True)
+    async def add_money(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        await interaction.response.defer()
+        guild_id = interaction.guild.id if interaction.guild else 0
         await db.update_user_money(member.id, guild_id, amount)
-        await ctx.send(f"✅ Пользователю {member.mention} добавлено {amount} баксов!")
+        await interaction.followup.send(f"✅ Пользователю {member.mention} добавлено {amount} баксов!")
 
 
-    # ==================== КОМАНДА COLLECTION ====================
-
-    @commands.hybrid_command(name='collection', description='Показать коллекцию покемонов игрока')
-    async def collection(self, ctx, member: discord.Member = None):
+    # ==================== COLLECTION ====================
+    
+    @app_commands.command(name='collection', description='Показать коллекцию покемонов игрока')
+    async def collection(self, interaction: discord.Interaction, member: discord.Member = None):
+        await interaction.response.defer()
+        
         if member is None:
-            member = ctx.author
+            member = interaction.user
         
         collection = await db.get_user_collection(member.id)
         
         if not collection["pokemons"]:
-            await ctx.send(f"📭 У игрока {member.mention} пока нет ни одного покемона в коллекции!")
+            await interaction.followup.send(f"📭 У игрока {member.mention} пока нет ни одного покемона в коллекции!")
             return
         
         sorted_pokemons = sorted(collection["pokemons"], key=lambda x: x['pokemon_id'])
@@ -541,29 +465,32 @@ class PokemonCog(commands.Cog):
                             value="\n".join(common_list[:10]), inline=False)
         
         embed.set_footer(text=f"Всего карт: {len(pokemon_list)} | Дубликатов: {len(collection['duplicates'])}")
-
-        try:
-            await member.send(embed=embed)
-            if member != ctx.author:
-                await ctx.send(f"📨 Коллекция игрока {member.mention} отправлена в личные сообщения!")
-        except:
-            await ctx.send(f"❌ Не удалось отправить коллекцию {member.mention} в ЛС. Возможно, у вас закрыты личные сообщения.")
-
-
-    # ==================== КОМАНДА SELL ====================
-
-    @commands.hybrid_command(name='sell', description='Продать конкретную карту из коллекции')
-    @app_commands.autocomplete(card_name=sell_autocomplete)
-    async def sell(self, ctx, card_name: str = None):
-        if card_name is None:
-            await ctx.send("❌ Укажите название карты. Пример: `!sell Bulbasaur #1/151`")
-            return
         
-        guild_id = ctx.guild.id if ctx.guild else 0
-        collection = await db.get_user_collection(ctx.author.id)
+        try:
+            await interaction.user.send(embed=embed)
+            if member != interaction.user:
+                await interaction.followup.send(f"📨 Коллекция игрока {member.mention} отправлена в личные сообщения!")
+            else:
+                await interaction.followup.send(f"📨 Коллекция отправлена в личные сообщения!", ephemeral=True)
+        except:
+            await interaction.followup.send(f"❌ Не удалось отправить коллекцию {member.mention} в ЛС. Возможно, у вас закрыты личные сообщения.", ephemeral=True)
+
+
+    # ==================== SELL ====================
+    
+    @app_commands.command(name='sell', description='Продать конкретную карту из коллекции')
+    @app_commands.autocomplete(card_name=sell_autocomplete)
+    async def sell(self, interaction: discord.Interaction, card_name: str):
+        await interaction.response.defer()
+        
+        # Очищаем название от цены и количества
+        clean_name = card_name.split(' — $')[0] if ' — $' in card_name else card_name
+        
+        guild_id = interaction.guild.id if interaction.guild else 0
+        collection = await db.get_user_collection(interaction.user.id)
         
         if not collection["pokemons"]:
-            await ctx.send("❌ У вас нет карт для продажи!")
+            await interaction.followup.send("❌ У вас нет карт для продажи!", ephemeral=True)
             return
         
         found_card = None
@@ -571,19 +498,19 @@ class PokemonCog(commands.Cog):
         
         for p in collection["pokemons"]:
             pokemon = next((card for card in POKEMON_DB_151 + POKEMON_DB_PRISMA if card["id"] == p["pokemon_id"]), None)
-            if pokemon and card_name.lower() in pokemon['name'].lower():
+            if pokemon and pokemon['name'].lower() == clean_name.lower():
                 found_card = p
                 found_pokemon = pokemon
                 break
         
         if found_card is None:
-            await ctx.send(f"❌ Карта `{card_name}` не найдена в вашей коллекции!")
+            await interaction.followup.send(f"❌ Карта `{clean_name}` не найдена в вашей коллекции!", ephemeral=True)
             return
         
+        # Создаём кнопки для подтверждения
         class ConfirmView(discord.ui.View):
-            def __init__(self, cog, user_id, card_data, pokemon_data, guild_id):
+            def __init__(self, user_id, card_data, pokemon_data, guild_id):
                 super().__init__(timeout=60)
-                self.cog = cog
                 self.user_id = user_id
                 self.card_data = card_data
                 self.pokemon_data = pokemon_data
@@ -591,19 +518,19 @@ class PokemonCog(commands.Cog):
                 self.confirmed = False
             
             @discord.ui.button(label="✅ Да, продать", style=discord.ButtonStyle.danger)
-            async def confirm(self, interaction, button):
-                if interaction.user.id != self.user_id:
-                    await interaction.response.send_message("❌ Это не ваша команда!", ephemeral=True)
+            async def confirm(self, button_interaction, button):
+                if button_interaction.user.id != self.user_id:
+                    await button_interaction.response.send_message("❌ Это не ваша команда!", ephemeral=True)
                     return
                 
-                await interaction.response.defer()
+                await button_interaction.response.defer()
                 self.confirmed = True
                 await db.remove_pokemon_from_collection(self.user_id, self.card_data["pokemon_id"])
                 price = self.pokemon_data["price"]
                 await db.update_user_money(self.user_id, self.guild_id, round(price, 2))
                 balance = await db.get_user_money(self.user_id, self.guild_id)
                 
-                await interaction.followup.send(
+                await button_interaction.followup.send(
                     f"💰 Продана карта **{self.pokemon_data['name']}** за **${price}**!\n"
                     f"💵 Ваш баланс: **${round(balance, 2)}**",
                     ephemeral=True
@@ -611,17 +538,17 @@ class PokemonCog(commands.Cog):
                 self.stop()
             
             @discord.ui.button(label="❌ Нет, отмена", style=discord.ButtonStyle.secondary)
-            async def cancel(self, interaction, button):
-                if interaction.user.id != self.user_id:
-                    await interaction.response.send_message("❌ Это не ваша команда!", ephemeral=True)
+            async def cancel(self, button_interaction, button):
+                if button_interaction.user.id != self.user_id:
+                    await button_interaction.response.send_message("❌ Это не ваша команда!", ephemeral=True)
                     return
                 
-                await interaction.response.send_message("❌ Продажа отменена.", ephemeral=True)
+                await button_interaction.response.send_message("❌ Продажа отменена.", ephemeral=True)
                 self.stop()
             
             async def on_timeout(self):
                 if not self.confirmed:
-                    await ctx.send("⏰ Время вышло. Продажа отменена.", delete_after=10)
+                    await interaction.followup.send("⏰ Время вышло. Продажа отменена.", ephemeral=True)
         
         embed = discord.Embed(
             title="💸 Подтверждение продажи",
@@ -633,8 +560,8 @@ class PokemonCog(commands.Cog):
         embed.add_field(name="Цена", value=f"**${found_pokemon['price']}**", inline=True)
         embed.set_footer(text="Это действие нельзя отменить!")
         
-        view = ConfirmView(self, ctx.author.id, found_card, found_pokemon, guild_id)
-        await ctx.send(embed=embed, view=view)
+        view = ConfirmView(interaction.user.id, found_card, found_pokemon, guild_id)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=False)
 
 
 async def setup(bot):
