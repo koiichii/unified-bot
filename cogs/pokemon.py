@@ -792,6 +792,12 @@ class PokemonCog(commands.Cog):
         view = ConfirmView(self, ctx.author.id, found_card, found_pokemon, guild_id)
         await ctx.send(embed=embed, view=view)
 
+    @commands.command(name='sync')
+    @commands.is_owner()
+    async def sync_commands(self, ctx):
+        """Принудительная синхронизация слэш-команд (только для владельца)"""
+        synced = await self.bot.tree.sync()
+        await ctx.send(f"✅ Синхронизировано {len(synced)} команд")
 
 async def setup(bot):
     await bot.add_cog(PokemonCog(bot))
