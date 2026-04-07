@@ -208,8 +208,10 @@ class PokemonCog(commands.Cog):
         
         # Списание монет
         await db.update_user_money(interaction.user.id, guild_id, round(-cost))
-        
-        # Отправка изображений
+
+        view = PackActions(pack_cards, (cost, source, pack_name), interaction.user.id, guild_id)
+
+# Отправка изображений (теперь view существует)
         for card in pack_cards:
             try:
                 async with aiohttp.ClientSession() as session:
@@ -225,15 +227,15 @@ class PokemonCog(commands.Cog):
                             view.image_messages.append(msg)
             except Exception as e:
                 print(f"Ошибка загрузки {card['name']}: {e}")
-        
-        # Текстовый результат
+
+# Текстовый результат
         result_text = f"🎴 **{interaction.user.mention}** открыл пак {pack_name} за ${cost}!\n\n"
         for i, card in enumerate(pack_cards, 1):
             result_text += f"||{i}. **{card['name']}** — ${card['price']}||\n"
-        
-        # Кнопки
-        view = PackActions(pack_cards, (cost, source, pack_name), interaction.user.id, guild_id)
-        await interaction.followup.send(result_text, view=view)
+
+        msg = await interaction.followup.send(result_text, view=view)
+        view.text_message = msg
+
 
 
     # ==================== TEST_CHANCE ====================
