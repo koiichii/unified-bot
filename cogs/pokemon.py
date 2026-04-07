@@ -16,6 +16,7 @@ from utils.database import db
 from utils.prices import get_pokemon_price_by_id
 import sys
 from utils.decorators import check_and_add_coins
+from discord import app_commands
 
 sys.path.append('C:/Users/bilya/unified_bot')
 
@@ -24,10 +25,87 @@ class PokemonCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # ==================== AUTOCOMPLETE ФУНКЦИИ ====================
+    
+    @staticmethod
+    async def pack_autocomplete(interaction: discord.Interaction, current: str):
+        """Автодополнение для выбора пака"""
+        packs = [
+            ("151 Booster - 10 баксов", "151"),
+            ("Prismatic Evolution Booster - 20 баксов", "prismatic")
+        ]
+        return [
+            app_commands.Choice(name=name, value=value)
+            for name, value in packs if current.lower() in name.lower()
+        ][:25]
+
+    @staticmethod
+    async def sell_autocomplete(interaction: discord.Interaction, current: str):
+        """Автодополнение для выбора карты на продажу"""
+        collection = await db.get_user_collection(interaction.user.id)
+    
+        if not collection["pokemons"]:
+            return []
+    
+        suggestions = []
+        for p in collection["pokemons"]:
+            pokemon = next((card for card in POKEMON_DB_151 + POKEMON_DB_PRISMA 
+                        if card["id"] == p["pokemon_id"]), None)
+            if pokemon:
+                name = pokemon['name']
+                if current.lower() in name.lower():
+                    suggestions.append(app_commands.Choice(name=name[:100], value=name[:100]))
+    
+        return suggestions[:25]
+
     # ==================== КОМАНДА GACHA ====================
     
-    @commands.command(name='gacha')
-    async def gacha(self, ctx):
+    @commands.hybrid_command(name='gacha', description='Открыть пак с покемонами')
+    @app_commands.autocomplete(pack=pack_autocomplete)
+    async def gacha(self, ctx, pack: str = None):
+        """Открыть пак. Можно выбрать через /gacha pack: или через кнопки"""
+        
+        # Если пак выбран через слэш-команду
+        if pack is not None:
+            if pack == "151":
+                cost, source, pack_name = 10, "151", "151"
+            else:
+                cost, source, pack_name = 20, "Prismatic Evolution", "Prismatic Evolution"
+            
+            # Проверяем баланс
+            guild_id = ctx.guild.id if ctx.guild else 0
+            user_balance = await db.get_user_money(ctx.author.id, guild_id)
+            
+            if user_balance < cost:
+                await ctx.send(f"❌ Недостаточно денег! Нужно {cost} монет. А у тебя {user_balance}")
+                return
+            
+            # Открываем пак
+            if pack_name == "151":
+                pokemon_db = POKEMON_DB_151
+                normal_weights = NORMAL_WEIGHTS_151
+                pack_cards = open_pack_151(pokemon_db, normal_weights)
+            else:
+                pokemon_db = POKEMON_DB_PRISMA
+                normal_weights = NORMAL_WEIGHTS_PRISMA
+                pack_cards = open_pack(pokemon_db, normal_weights)
+            
+            # Сохраняем карты
+            for card in pack_cards:
+                await db.add_pokemon_to_collection(ctx.author.id, card["id"], source, card['name'])
+            
+            # Списываем монеты
+            await db.update_user_money(ctx.author.id, guild_id, round(-cost))
+            
+            # Отправляем результат
+            result_text = f"🎴 **{ctx.author.mention}** открыл пак {pack_name} за ${cost}!\n\n"
+            for i, card in enumerate(pack_cards, 1):
+                result_text += f"||{i}. **{card['name']}** — ${card['price']}||\n"
+            
+            await ctx.send(result_text)
+            return
+        
+        # Иначе показываем кнопки (как было раньше)
         class BoxSelector(discord.ui.View):
             def __init__(self, original_message):
                 super().__init__(timeout=60)
@@ -314,7 +392,7 @@ class PokemonCog(commands.Cog):
 
     # ==================== КОМАНДА TEST_CHANCE ====================
     
-    @commands.command(name='test_chance')
+    @commands.hybrid_command(name='test_chance', description='Тест вероятностей выпадения карт')
     async def test_chance(self, ctx, arg: int):
         class BoxSelector(discord.ui.View):
             def __init__(self, original_message):
@@ -383,7 +461,7 @@ class PokemonCog(commands.Cog):
                 count_100 = 0
                 count_50 = 0
             
-                # Счётчики для слотов (1-8)
+                # Счётчики для слотов (1-10)
                 slot_rare_counts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
                 for _ in range(arg):
@@ -464,7 +542,7 @@ class PokemonCog(commands.Cog):
 
     # ==================== КОМАНДА SELLDUBL (продажа всех дубликатов) ====================
     
-    @commands.command(name='selldubl')
+    @commands.hybrid_command(name='selldubl', description='Продать все дубликаты из коллекции')
     async def selldubl(self, ctx):
         guild_id = ctx.guild.id if ctx.guild else 0
         
@@ -492,7 +570,7 @@ class PokemonCog(commands.Cog):
 
     # ==================== КОМАНДА ADD_MONEY (для админов) ====================
     
-    @commands.command(name='add_money')
+    @commands.hybrid_command(name='add_money', description='Добавить монеты пользователю (только для админов)')
     @commands.has_permissions(administrator=True)
     async def add_money(self, ctx, amount: int, member: discord.Member = None):
         """Добавить монеты пользователю (только для админов)"""
@@ -507,7 +585,7 @@ class PokemonCog(commands.Cog):
 
     # ==================== КОМАНДА COLLECTION (показать коллекцию) ====================
 
-    @commands.command(name='collection')
+    @commands.hybrid_command(name='collection', description='Показать коллекцию покемонов игрока')
     async def collection(self, ctx, member: discord.Member = None):
         """Показать коллекцию покемонов игрока"""
         if member is None:
@@ -620,8 +698,9 @@ class PokemonCog(commands.Cog):
 
     # ==================== КОМАНДА SELL (продажа конкретной карты) ====================
 
-    @commands.command(name='sell')
-    async def sell(self, ctx, *, card_name: str = None):
+    @commands.hybrid_command(name='sell', description='Продать конкретную карту из коллекции')
+    @app_commands.autocomplete(card_name=sell_autocomplete)
+    async def sell(self, ctx, card_name: str = None):
         """Продать конкретную карту из коллекции. Пример: !sell Bulbasaur #1/151"""
         if card_name is None:
             await ctx.send("❌ Укажите название карты. Пример: `!sell Bulbasaur #1/151`")
