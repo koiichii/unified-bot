@@ -423,7 +423,7 @@ class PokemonCog(commands.Cog):
         
             async def update_page(self, interaction, page):
                 img = await create_album_page(self.user_id, "prismatic", page, self.user_cards)
-                await interaction.response.edit_message(
+                await interaction.edit_original_response(
                     file=discord.File(img, filename=f"album_page_{page}.png"),
                     view=self
                 )
