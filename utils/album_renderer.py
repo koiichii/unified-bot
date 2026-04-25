@@ -90,31 +90,31 @@ async def create_album_page(user_id: int, set_name: str, page_number: int, user_
                 draw.text((x + 5, y + CARD_HEIGHT - 25), name, fill=(255, 255, 255), font=font)
             
             else:
-            # Пустой слот — рисуем номер карты
-            # Рисуем затемнённый фон
-            draw.rectangle(
-                [x + 2, y + 2, x + CARD_WIDTH - 2, y + CARD_HEIGHT - 2],
-                fill=(40, 40, 50)
-            )
-            # Рисуем рамку
-            draw.rectangle(
-                [x, y, x + CARD_WIDTH, y + CARD_HEIGHT],
-                outline=(80, 80, 90),
-                width=2
-            )
-            # Пишем номер карты
-            card_number_text = f"#{pokemon_id}"
-            # Получаем размер текста для центрирования
-            try:
-                bbox = draw.textbbox((0, 0), card_number_text, font=font)
-                text_width = bbox[2] - bbox[0]
-                text_height = bbox[3] - bbox[1]
-            except:
-                text_width = len(card_number_text) * 10
-                text_height = 15
-            text_x = x + (CARD_WIDTH - text_width) // 2
-            text_y = y + (CARD_HEIGHT - text_height) // 2
-            draw.text((text_x, text_y), card_number_text, fill=(150, 150, 160), font=font)
+                # Пустой слот — рисуем номер карты
+                # Рисуем затемнённый фон
+                draw.rectangle(
+                    [x + 2, y + 2, x + CARD_WIDTH - 2, y + CARD_HEIGHT - 2],
+                    fill=(40, 40, 50)
+                )
+                # Рисуем рамку
+                draw.rectangle(
+                    [x, y, x + CARD_WIDTH, y + CARD_HEIGHT],
+                    outline=(80, 80, 90),
+                    width=2
+                )
+                # Пишем номер карты
+                card_number_text = f"#{pokemon_id}"
+                # Получаем размер текста для центрирования
+                try:
+                    bbox = draw.textbbox((0, 0), card_number_text, font=font)
+                    text_width = bbox[2] - bbox[0]
+                    text_height = bbox[3] - bbox[1]
+                except:
+                    text_width = len(card_number_text) * 10
+                    text_height = 15
+                text_x = x + (CARD_WIDTH - text_width) // 2
+                text_y = y + (CARD_HEIGHT - text_height) // 2
+                draw.text((text_x, text_y), card_number_text, fill=(150, 150, 160), font=font)
     
     # Добавляем номер страницы
     draw.text((ALBUM_WIDTH - 80, ALBUM_HEIGHT - 30), f"Стр. {page_number}", fill=(200, 200, 200), font=font)

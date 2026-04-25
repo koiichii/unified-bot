@@ -399,8 +399,7 @@ class PokemonCog(commands.Cog):
     async def collection(self, interaction: discord.Interaction, member: discord.Member = None):
         await interaction.response.defer()
     
-        if member is None:
-            member = interaction.user
+        member = interaction.user
     
         # Получаем коллекцию пользователя
         collection = await db.get_user_collection(member.id)
@@ -427,30 +426,31 @@ class PokemonCog(commands.Cog):
                 self.user_cards = user_cards
                 self.current_page = current_page
                 self.total_pages = total_pages
-        
-            async def update_page(self, interaction):
-                img = await create_album_page(self.user_id, "prismatic", self.current_page, self.user_cards)
+                self.message = None  # ← сохраняем сообщение
+
+            async def update_page(self, interaction, page):
+                img = await create_album_page(self.user_id, "prismatic", page, self.user_cards)
+                # Обновляем существующее сообщение, а не отправляем новое
                 await interaction.response.edit_message(
-                    file=discord.File(img, filename=f"album_page_{self.current_page}.png"),
+                    file=discord.File(img, filename=f"album_page_{page}.png"),
                     view=self
                 )
-        
+
             @discord.ui.button(label="◀ Назад", style=discord.ButtonStyle.primary)
-            async def prev_page(self, button_interaction, button):
+            async def prev_page(self, interaction, button):
                 if self.current_page > 1:
                     self.current_page -= 1
-                    await self.update_page(button_interaction)
-        
+                    await self.update_page(interaction, self.current_page)
+
             @discord.ui.button(label="Вперед ▶", style=discord.ButtonStyle.primary)
-            async def next_page(self, button_interaction, button):
+            async def next_page(self, interaction, button):
                 if self.current_page < self.total_pages:
                     self.current_page += 1
-                    await self.update_page(button_interaction)
-        
+                    await self.update_page(interaction, self.current_page)
+
             @discord.ui.button(label="❌ Закрыть", style=discord.ButtonStyle.secondary)
-            async def close(self, button_interaction, button):
-                await button_interaction.response.defer()
-                await button_interaction.delete_original_response()
+            async def close(self, interaction, button):
+                await interaction.response.delete_message()
     
         # Создаём первую страницу
         img = await create_album_page(member.id, "prismatic", 1, user_cards)
