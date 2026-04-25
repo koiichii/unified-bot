@@ -446,7 +446,7 @@ class PokemonCog(commands.Cog):
     
         # Создаём первую страницу
         img = await create_album_page(member.id, "prismatic", 1, user_cards)
-        view = AlbumView(member.id, user_cards)
+        view = AlbumView(member.id, user_cards, total_pages)
         await interaction.followup.send(file=discord.File(img, filename="album_page_1.png"), view=view)
 
 
