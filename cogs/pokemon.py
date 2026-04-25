@@ -14,6 +14,7 @@ from utils.weights import (
 )
 from utils.database import db
 import sys
+from utils.album_renderer import create_album_page
 
 sys.path.append('C:/Users/bilya/unified_bot')
 
@@ -393,111 +394,68 @@ class PokemonCog(commands.Cog):
 
     # ==================== COLLECTION ====================
     
-    @app_commands.command(name='collection', description='Показать коллекцию покемонов игрока')
+    @commands.guild_only()
+    @app_commands.command(name='collection', description='Показать коллекцию покемонов игрока (альбом)')
     async def collection(self, interaction: discord.Interaction, member: discord.Member = None):
         await interaction.response.defer()
-        
+    
         if member is None:
             member = interaction.user
-        
+    
+        # Получаем коллекцию пользователя
         collection = await db.get_user_collection(member.id)
-        
+    
         if not collection["pokemons"]:
             await interaction.followup.send(f"📭 У игрока {member.mention} пока нет ни одного покемона в коллекции!")
             return
+    
+        # Получаем карты пользователя в формате {pokemon_id: card_data}
+        user_cards = {p['pokemon_id']: p for p in collection["pokemons"]}
+    
+        # Для Prismatic Evolution карты имеют ID от 188 до 310
+        # Определяем максимальный ID для сета (нужно подобрать под твои данные)
+        # Если карты из 151 сета — ID до 187, если Prismatic — с 188
+        # Пока сделаем для Prismatic (можно добавить выбор сета позже)
+        max_card_id = 310  # максимальный ID карты в твоей БД
+    
+        total_pages = (max_card_id + 5) // 6  # 6 карт на страницу
+    
+        class AlbumView(discord.ui.View):
+            def __init__(self, user_id, user_cards, current_page=1):
+                super().__init__(timeout=120)
+                self.user_id = user_id
+                self.user_cards = user_cards
+                self.current_page = current_page
+                self.total_pages = total_pages
         
-        sorted_pokemons = sorted(collection["pokemons"], key=lambda x: x['pokemon_id'])
+            async def update_page(self, interaction):
+                img = await create_album_page(self.user_id, "prismatic", self.current_page, self.user_cards)
+                await interaction.response.edit_message(
+                    file=discord.File(img, filename=f"album_page_{self.current_page}.png"),
+                    view=self
+                )
         
-        pokemon_list = []
-        for p in sorted_pokemons:
-            pokemon = next((card for card in POKEMON_DB_151 + POKEMON_DB_PRISMA if card["id"] == p["pokemon_id"]), None)
-            if pokemon:
-                pokemon_list.append({
-                    "name": pokemon['name'],
-                    "rarity": pokemon['rarity'],
-                    "price": pokemon['price'],
-                    "source": p['source']
-                })
+            @discord.ui.button(label="◀ Назад", style=discord.ButtonStyle.primary)
+            async def prev_page(self, button_interaction, button):
+                if self.current_page > 1:
+                    self.current_page -= 1
+                    await self.update_page(button_interaction)
         
-        embed = discord.Embed(
-            title=f"📦 Коллекция {member.display_name}",
-            description=f"Всего уникальных карт: **{len(pokemon_list)}**",
-            color=discord.Color.gold()
-        )
+            @discord.ui.button(label="Вперед ▶", style=discord.ButtonStyle.primary)
+            async def next_page(self, button_interaction, button):
+                if self.current_page < self.total_pages:
+                    self.current_page += 1
+                    await self.update_page(button_interaction)
         
-        sir_list = []
-        ir_list = []
-        ur_list = []
-        hr_list = []
-        rr_list = []
-        rare_list = []
-        uncommon_list = []
-        common_list = []
-        
-        for p in pokemon_list:
-            if p['rarity'] == "Special_illustration_rare":
-                sir_list.append(f"• {p['name']} (${p['price']})")
-            elif p['rarity'] == "Illustration_rare":
-                ir_list.append(f"• {p['name']} (${p['price']})")
-            elif p['rarity'] == "Ultra_rare":
-                ur_list.append(f"• {p['name']} (${p['price']})")
-            elif p['rarity'] == "Hyper_rare":
-                hr_list.append(f"• {p['name']} (${p['price']})")
-            elif p['rarity'] == "Double_rare":
-                rr_list.append(f"• {p['name']} (${p['price']})")
-            elif p['rarity'] == "Rare":
-                rare_list.append(f"• {p['name']} (${p['price']})")
-            elif p['rarity'] == "Uncommon":
-                uncommon_list.append(f"• {p['name']} (${p['price']})")
-            else:
-                common_list.append(f"• {p['name']} (${p['price']})")
-        
-        if sir_list:
-            embed.add_field(name=f"✨ Special Illustration Rare ({len(sir_list)})", 
-                            value="\n".join(sir_list[:20]), inline=False)
-            if len(sir_list) > 20:
-                embed.add_field(name="", value=f"... и ещё {len(sir_list)-20} карт", inline=False)
-        
-        if ir_list:
-            embed.add_field(name=f"🎨 Illustration Rare ({len(ir_list)})", 
-                            value="\n".join(ir_list[:20]), inline=False)
-            if len(ir_list) > 20:
-                embed.add_field(name="", value=f"... и ещё {len(ir_list)-20} карт", inline=False)
-        
-        if ur_list:
-            embed.add_field(name=f"⭐ Ultra Rare ({len(ur_list)})", 
-                            value="\n".join(ur_list[:20]), inline=False)
-        
-        if hr_list:
-            embed.add_field(name=f"🌟 Hyper Rare ({len(hr_list)})", 
-                            value="\n".join(hr_list[:20]), inline=False)
-        
-        if rr_list:
-            embed.add_field(name=f"💎 Double Rare ({len(rr_list)})", 
-                            value="\n".join(rr_list[:15]), inline=False)
-        
-        if rare_list:
-            embed.add_field(name=f"🔹 Rare ({len(rare_list)})", 
-                            value="\n".join(rare_list[:15]), inline=False)
-        
-        if uncommon_list:
-            embed.add_field(name=f"🟢 Uncommon ({len(uncommon_list)})", 
-                            value="\n".join(uncommon_list[:10]), inline=False)
-        
-        if common_list:
-            embed.add_field(name=f"⚪ Common ({len(common_list)})", 
-                            value="\n".join(common_list[:10]), inline=False)
-        
-        embed.set_footer(text=f"Всего карт: {len(pokemon_list)} | Дубликатов: {len(collection['duplicates'])}")
-        
-        try:
-            await interaction.user.send(embed=embed)
-            if member != interaction.user:
-                await interaction.followup.send(f"📨 Коллекция игрока {member.mention} отправлена в личные сообщения!")
-            else:
-                await interaction.followup.send(f"📨 Коллекция отправлена в личные сообщения!", ephemeral=True)
-        except:
-            await interaction.followup.send(f"❌ Не удалось отправить коллекцию {member.mention} в ЛС. Возможно, у вас закрыты личные сообщения.", ephemeral=True)
+            @discord.ui.button(label="❌ Закрыть", style=discord.ButtonStyle.secondary)
+            async def close(self, button_interaction, button):
+                await button_interaction.response.defer()
+                await button_interaction.delete_original_response()
+    
+        # Создаём первую страницу
+        img = await create_album_page(member.id, "prismatic", 1, user_cards)
+        view = AlbumView(member.id, user_cards)
+        await interaction.followup.send(file=discord.File(img, filename="album_page_1.png"), view=view)
 
 
     # ==================== SELL ====================
