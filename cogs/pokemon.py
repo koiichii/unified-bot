@@ -394,29 +394,23 @@ class PokemonCog(commands.Cog):
 
     # ==================== COLLECTION ====================
     
-    @commands.guild_only()
-    @app_commands.command(name='collection', description='Показать коллекцию покемонов игрока (альбом)')
-    async def collection(self, interaction: discord.Interaction, member: discord.Member = None):
+    @app_commands.command(name='collection', description='Показать свою коллекцию покемонов (альбом)')
+    async def collection(self, interaction: discord.Interaction):
         await interaction.response.defer()
-    
         member = interaction.user
     
         # Получаем коллекцию пользователя
         collection = await db.get_user_collection(member.id)
     
         if not collection["pokemons"]:
-            await interaction.followup.send(f"📭 У игрока {member.mention} пока нет ни одного покемона в коллекции!")
+            await interaction.followup.send(f"📭 У вас пока нет ни одного покемона в коллекции!")
             return
     
         # Получаем карты пользователя в формате {pokemon_id: card_data}
         user_cards = {p['pokemon_id']: p for p in collection["pokemons"]}
     
-        # Для Prismatic Evolution карты имеют ID от 188 до 310
-        # Определяем максимальный ID для сета (нужно подобрать под твои данные)
-        # Если карты из 151 сета — ID до 187, если Prismatic — с 188
-        # Пока сделаем для Prismatic (можно добавить выбор сета позже)
-        max_card_id = 310  # максимальный ID карты в твоей БД
-    
+        # Максимальный ID карты (в Prismatic Evolution до 310)
+        max_card_id = 310
         total_pages = (max_card_id + 5) // 6  # 6 карт на страницу
     
         class AlbumView(discord.ui.View):
@@ -426,28 +420,26 @@ class PokemonCog(commands.Cog):
                 self.user_cards = user_cards
                 self.current_page = current_page
                 self.total_pages = total_pages
-                self.message = None  # ← сохраняем сообщение
-
+        
             async def update_page(self, interaction, page):
                 img = await create_album_page(self.user_id, "prismatic", page, self.user_cards)
-                # Обновляем существующее сообщение, а не отправляем новое
                 await interaction.response.edit_message(
                     file=discord.File(img, filename=f"album_page_{page}.png"),
                     view=self
                 )
-
+        
             @discord.ui.button(label="◀ Назад", style=discord.ButtonStyle.primary)
             async def prev_page(self, interaction, button):
                 if self.current_page > 1:
                     self.current_page -= 1
                     await self.update_page(interaction, self.current_page)
-
+        
             @discord.ui.button(label="Вперед ▶", style=discord.ButtonStyle.primary)
             async def next_page(self, interaction, button):
                 if self.current_page < self.total_pages:
                     self.current_page += 1
                     await self.update_page(interaction, self.current_page)
-
+        
             @discord.ui.button(label="❌ Закрыть", style=discord.ButtonStyle.secondary)
             async def close(self, interaction, button):
                 await interaction.response.delete_message()
